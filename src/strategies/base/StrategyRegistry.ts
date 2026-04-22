@@ -42,6 +42,11 @@ export class StrategyRegistry {
     return this.strategiesByType.get(type) || [];
   }
 
+  listByPriority(type: StrategyType): Strategy[] {
+    const typeStrategies = this.strategiesByType.get(type) || [];
+    return [...typeStrategies].sort((a, b) => a.config.priority - b.config.priority);
+  }
+
   getAll(): Strategy[] {
     return Array.from(this.strategies.values());
   }
