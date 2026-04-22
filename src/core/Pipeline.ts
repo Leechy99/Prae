@@ -42,6 +42,10 @@ export class Pipeline {
     this.experienceStore = store;
   }
 
+  getRegisteredStrategies(): Strategy[] {
+    return this.registry.getAll();
+  }
+
   registerStrategy(strategy: Strategy): void {
     this.registry.register(strategy);
     this.executor.register(strategy);
