@@ -205,13 +205,22 @@ export class Pipeline {
   }
 
   mergeOutput(contentItem: ContentItem, fusedOutput: unknown): void {
-    if (fusedOutput && typeof fusedOutput === 'object' && !Array.isArray(fusedOutput)) {
+    if (typeof fusedOutput === 'string') {
+      // Simple string output (e.g., cleanedText string from fuseResults)
+      contentItem.meta.cleanedText = fusedOutput;
+      contentItem.meta.textContent = fusedOutput;
+    } else if (fusedOutput && typeof fusedOutput === 'object' && !Array.isArray(fusedOutput)) {
       const output = fusedOutput as Record<string, unknown>;
       if (output.cleanedText !== undefined) {
-        contentItem.meta.cleanedText = output.cleanedText;
+        contentItem.meta.cleanedText = output.cleanedText as string;
+        contentItem.meta.textContent = output.cleanedText as string;
       }
       if (output.textContent !== undefined) {
-        contentItem.meta.textContent = output.textContent;
+        contentItem.meta.textContent = output.textContent as string;
+      }
+      if (output.filteredText !== undefined) {
+        contentItem.meta.filteredText = output.filteredText as string;
+        contentItem.meta.textContent = output.filteredText as string;
       }
       if (output.entities !== undefined) {
         contentItem.meta.entities = output.entities;

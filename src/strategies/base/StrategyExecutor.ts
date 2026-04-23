@@ -73,6 +73,21 @@ export class StrategyExecutor {
       return successfulResults[0].output;
     }
 
+    // For denoise/semantic results with cleanedText or filteredText, extract the string value
+    const cleanedTextResult = successfulResults.find(r =>
+      r.output && typeof r.output === 'object' && 'cleanedText' in r.output
+    );
+    if (cleanedTextResult) {
+      return (cleanedTextResult.output as { cleanedText: string }).cleanedText;
+    }
+
+    const filteredTextResult = successfulResults.find(r =>
+      r.output && typeof r.output === 'object' && 'filteredText' in r.output
+    );
+    if (filteredTextResult) {
+      return (filteredTextResult.output as { filteredText: string }).filteredText;
+    }
+
     return {
       type: 'fused',
       sources: successfulResults.length,

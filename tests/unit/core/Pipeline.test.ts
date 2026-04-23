@@ -276,11 +276,17 @@ describe('Pipeline', () => {
       expect(contentItem.meta.structure).toEqual({ sections: 2 });
     });
 
-    it('does not update when fusedOutput is not an object', () => {
+    it('updates textContent when fusedOutput is a string (cleanedText)', () => {
+      const contentItem = createContentItem();
+      pipeline.mergeOutput(contentItem, 'string output' as unknown);
+      expect(contentItem.meta.textContent).toBe('string output');
+      expect(contentItem.meta.cleanedText).toBe('string output');
+    });
+
+    it('does not update when fusedOutput is null or array', () => {
       const contentItem = createContentItem();
       const originalMeta = { ...contentItem.meta };
 
-      pipeline.mergeOutput(contentItem, 'string output' as unknown);
       pipeline.mergeOutput(contentItem, null);
       pipeline.mergeOutput(contentItem, [1, 2, 3]);
 

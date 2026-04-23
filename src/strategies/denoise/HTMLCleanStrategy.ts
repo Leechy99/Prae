@@ -77,6 +77,10 @@ export class HTMLCleanStrategy implements Strategy {
         }
       });
 
+      // Serialize cleaned HTML back to item.raw for chaining with next denoise strategy
+      const serializedHtml = dom.serialize();
+      item.raw = new TextEncoder().encode(serializedHtml);
+
       const bodyText = document.body?.textContent;
       const docText = document.textContent;
       cleanedText = (bodyText ?? docText ?? '').trim();
