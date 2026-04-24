@@ -16,6 +16,9 @@ export interface ExperienceStore {
     tenantId?: string
   ): Promise<void>;
   getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>;
+  // Pipeline-compatible methods
+  getHistoricalContext(contentItemId: string): Promise<unknown>;
+  recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>;
 }
 
 function hashContent(content: Uint8Array): string {
@@ -127,6 +130,17 @@ export class LocalExperienceStore implements ExperienceStore {
       }
     }
     return results;
+  }
+
+  // Pipeline interface adapters (Pipeline.ts expects getHistoricalContext + recordProcessing)
+  async getHistoricalContext(_contentItemId: string): Promise<unknown> {
+    // Could be enhanced to look up by content hash or source
+    return undefined;
+  }
+
+  async recordProcessing(_contentItemId: string, result: ProcessingResult): Promise<void> {
+    // Translate Pipeline's recordProcessing to our record method
+    await this.record(result);
   }
 
   private extractSourceType(contentItem: { source: string; meta: Record<string, unknown> }): string {

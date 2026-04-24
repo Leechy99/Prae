@@ -3,14 +3,7 @@ import { Strategy, StrategyType } from '../strategies/base/Strategy';
 import { StrategyRegistry } from '../strategies/base/StrategyRegistry';
 import { StrategyExecutor } from '../strategies/base/StrategyExecutor';
 import { ConfidenceScorer } from './ConfidenceScorer';
-
-/**
- * Interface for ExperienceStore (implemented in Task 9)
- */
-export interface ExperienceStore {
-  getHistoricalContext(contentItemId: string): Promise<unknown>;
-  recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>;
-}
+import type { ExperienceStore } from '../experience/ExperienceStore';
 
 export interface PipelineConfig {
   maxRetries?: number;

@@ -49,10 +49,7 @@ export class NavigationFilterStrategy implements Strategy {
         elements.forEach(el => el.remove());
       });
 
-      // Serialize cleaned HTML back to item.raw for chaining with next denoise strategy
-      const serializedHtml = dom.serialize();
-      item.raw = new TextEncoder().encode(serializedHtml);
-
+      // Return cleaned text via output — Pipeline.mergeOutput reads cleanedText
       const bodyText = document.body?.textContent;
       const docText = document.textContent;
       const cleanedText = (bodyText ?? docText ?? '').trim();
