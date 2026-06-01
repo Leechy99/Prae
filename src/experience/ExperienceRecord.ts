@@ -28,6 +28,7 @@ export interface Learning {
 export interface ExperienceRecord {
   id: string;
   tenantId: string;
+  contentItemId?: string;
   input: ExperienceRecordInput;
   processing: ExperienceRecordProcessing;
   outcome: ProcessingResult['outcome'];

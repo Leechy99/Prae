@@ -34,7 +34,7 @@ export class JSONSchemaStrategy implements Strategy {
   }
 
   canApply(item: ContentItem): boolean {
-    const text = item.meta?.cleanedText || item.meta?.textContent;
+    const text = item.meta?.filteredText || item.meta?.cleanedText || item.meta?.textContent;
     return !!text;
   }
 
@@ -42,13 +42,15 @@ export class JSONSchemaStrategy implements Strategy {
     const startedAt = Date.now();
 
     try {
+      const rawFiltered = item.meta?.filteredText;
       const rawCleaned = item.meta?.cleanedText;
       const rawTextContent = item.meta?.textContent;
-      const text = String(rawCleaned || rawTextContent || '');
+      const text = String(rawFiltered || rawCleaned || rawTextContent || '');
       const title = item.meta?.title as string | undefined;
       const url = item.meta?.url as string | undefined;
       const confidence = (item.meta?.confidence as number) || 0.8;
       const strategiesApplied = (item.meta?.strategiesApplied as string[]) || [];
+      const chunks = item.meta?.chunks as JSONSchemaOutput['chunks'] | undefined;
 
       const output: JSONSchemaOutput = {
         version: '1.0.0',
@@ -63,6 +65,7 @@ export class JSONSchemaStrategy implements Strategy {
           confidence,
           strategiesApplied,
         },
+        ...(chunks && { chunks }),
       };
 
       return {

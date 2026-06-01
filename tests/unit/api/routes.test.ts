@@ -1,6 +1,7 @@
 import express, { Express } from 'express';
 import request from 'supertest';
 import { createRouter } from '../../../src/api/routes';
+import type { ExperienceStore } from '../../../src/experience/ExperienceStore';
 
 describe('API Routes', () => {
   let app: Express;
@@ -64,6 +65,7 @@ describe('API Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('success', true);
       expect(response.body.result).toHaveProperty('id');
+      expect(response.body.result).toHaveProperty('contentItemId');
       expect(response.body.result).toHaveProperty('outcome');
       expect(response.body.result).toHaveProperty('confidence');
       expect(response.body.result).toHaveProperty('strategiesUsed');
@@ -136,6 +138,33 @@ describe('API Routes', () => {
       expect(response.body).toHaveProperty('message', 'Feedback recorded');
       expect(response.body.data).toHaveProperty('contentItemId', 'test-item');
       expect(response.body.data).toHaveProperty('rating', 4);
+    });
+
+    it('writes feedback to the configured experience store', async () => {
+      const experienceStore: ExperienceStore = {
+        record: jest.fn().mockResolvedValue(undefined),
+        getLatest: jest.fn().mockResolvedValue(null),
+        getByOutcome: jest.fn().mockResolvedValue([]),
+        addHumanFeedback: jest.fn().mockResolvedValue(undefined),
+        getLearnableRecords: jest.fn().mockResolvedValue([]),
+        getHistoricalContext: jest.fn().mockResolvedValue(undefined),
+        recordProcessing: jest.fn().mockResolvedValue(undefined),
+      };
+      const configuredApp = express();
+      configuredApp.use(express.json());
+      configuredApp.use(createRouter({ experienceStore }));
+
+      const response = await request(configuredApp)
+        .post('/api/v1/experience/feedback')
+        .set('X-API-Key', 'dev-api-key')
+        .send({ contentItemId: 'test-item', rating: 4, feedback: 'Good processing' });
+
+      expect(response.status).toBe(200);
+      expect(experienceStore.addHumanFeedback).toHaveBeenCalledWith(
+        'test-item',
+        'Good processing',
+        { rating: 4, feedback: 'Good processing' }
+      );
     });
   });
 });

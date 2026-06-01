@@ -73,19 +73,41 @@ export class StrategyExecutor {
       return successfulResults[0].output;
     }
 
-    // For denoise/semantic results with cleanedText or filteredText, extract the string value
-    const cleanedTextResult = successfulResults.find(r =>
-      r.output && typeof r.output === 'object' && 'cleanedText' in r.output
-    );
-    if (cleanedTextResult) {
-      return (cleanedTextResult.output as { cleanedText: string }).cleanedText;
-    }
+    const mergeableKeys = new Set([
+      'cleanedText',
+      'textContent',
+      'filteredText',
+      'removedTags',
+      'navRemoved',
+      'textLength',
+      'chunks',
+      'totalChunks',
+      'removedRatio',
+      'entities',
+      'mentions',
+      'namedEntities',
+      'structure',
+      'schema',
+      'format',
+      'coherence',
+      'context',
+      'relevance',
+    ]);
 
-    const filteredTextResult = successfulResults.find(r =>
-      r.output && typeof r.output === 'object' && 'filteredText' in r.output
+    const objectOutputs = successfulResults
+      .map(r => r.output)
+      .filter((output): output is Record<string, unknown> =>
+        !!output && typeof output === 'object' && !Array.isArray(output)
+      );
+
+    const hasMergeableOutput = objectOutputs.some(output =>
+      Object.keys(output).some(key => mergeableKeys.has(key))
     );
-    if (filteredTextResult) {
-      return (filteredTextResult.output as { filteredText: string }).filteredText;
+
+    if (hasMergeableOutput) {
+      return objectOutputs.reduce<Record<string, unknown>>((merged, output) => {
+        return { ...merged, ...output };
+      }, {});
     }
 
     return {

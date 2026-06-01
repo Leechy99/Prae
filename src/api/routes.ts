@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Pipeline } from '../core/Pipeline';
 import { Strategy, StrategyType } from '../strategies/base/Strategy';
-import { StrategyRegistry } from '../strategies/base/StrategyRegistry';
 import { InputRegistry } from '../input/InputRegistry';
 import { HTMLInputSource } from '../input/HTMLInputSource';
 import { HTMLCleanStrategy } from '../strategies/denoise/HTMLCleanStrategy';
@@ -10,17 +9,24 @@ import { ChunkingStrategy } from '../strategies/semantic/ChunkingStrategy';
 import { RelevanceFilterStrategy } from '../strategies/semantic/RelevanceFilterStrategy';
 import { JSONSchemaStrategy } from '../strategies/output/JSONSchemaStrategy';
 import { MarkdownStrategy } from '../strategies/output/MarkdownStrategy';
+import { ExperienceStore, LocalExperienceStore } from '../experience/ExperienceStore';
 import { apiKeyAuth } from './middleware/auth';
 import { validateRequest, processRequestSchema, feedbackRequestSchema } from './validators/process';
 import type { ContentItem, ContentHint } from '../types';
 
 export interface ApiConfig {
   pipeline?: Pipeline;
+  inputRegistry?: InputRegistry;
+  experienceStore?: ExperienceStore;
 }
 
 export function createRouter(config: ApiConfig = {}): Router {
   const router = Router();
-  const pipeline = config.pipeline || createDefaultPipeline();
+  const experienceStore = config.experienceStore || new LocalExperienceStore();
+  const pipeline = config.pipeline || createDefaultPipeline(experienceStore);
+  const inputRegistry = config.inputRegistry || createDefaultInputRegistry();
+
+  pipeline.setExperienceStore(experienceStore);
 
   // Health check - no auth required
   router.get('/health', (_req: Request, res: Response) => {
@@ -52,22 +58,7 @@ export function createRouter(config: ApiConfig = {}): Router {
         return;
       }
 
-      // Detect content type
-      const inputRegistry = new InputRegistry();
-      inputRegistry.register(new HTMLInputSource());
-      const hints: ContentHint = inputRegistry.detectMimeType(rawContent);
-
-      // Create content item
-      const contentItem: ContentItem = {
-        id: `item-${Date.now()}`,
-        source: contentType || hints.mimeType || 'unknown',
-        raw: rawContent,
-        meta: {
-          textContent: Buffer.from(rawContent).toString('utf-8'),
-          contentType: contentType || hints.mimeType,
-        },
-        hints,
-      };
+      const contentItem = parseContentItem(rawContent, contentType, inputRegistry);
 
       // Process through pipeline
       const result = await pipeline.process(contentItem);
@@ -76,6 +67,7 @@ export function createRouter(config: ApiConfig = {}): Router {
         success: true,
         result: {
           id: result.id,
+          contentItemId: result.contentItem.id,
           outcome: result.outcome,
           confidence: result.confidence,
           processingTimeMs: result.processingTimeMs,
@@ -113,21 +105,32 @@ export function createRouter(config: ApiConfig = {}): Router {
   });
 
   // POST /experience/feedback - records feedback
-  apiV1.post('/experience/feedback', validateRequest(feedbackRequestSchema), (req: Request, res: Response) => {
+  apiV1.post('/experience/feedback', validateRequest(feedbackRequestSchema), async (req: Request, res: Response) => {
     const { contentItemId, rating, feedback } = req.body;
 
-    // Feedback recording - integrate with experience store if available
-    // For now, just acknowledge receipt
-    res.json({
-      success: true,
-      message: 'Feedback recorded',
-      data: {
+    try {
+      await experienceStore.addHumanFeedback(
         contentItemId,
-        rating,
-        feedback,
-        recordedAt: new Date().toISOString(),
-      },
-    });
+        feedback ?? `Rating: ${rating}/5`,
+        { rating, feedback }
+      );
+
+      res.json({
+        success: true,
+        message: 'Feedback recorded',
+        data: {
+          contentItemId,
+          rating,
+          feedback,
+          recordedAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: 'Feedback Error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   });
 
   router.use('/api/v1', apiV1);
@@ -135,35 +138,73 @@ export function createRouter(config: ApiConfig = {}): Router {
   return router;
 }
 
-function createDefaultPipeline(): Pipeline {
+function createDefaultInputRegistry(): InputRegistry {
+  const inputRegistry = new InputRegistry();
+  inputRegistry.register(new HTMLInputSource());
+  return inputRegistry;
+}
+
+function parseContentItem(rawContent: Uint8Array, contentType: string | undefined, inputRegistry: InputRegistry): ContentItem {
+  const hints: ContentHint = inputRegistry.detectMimeType(rawContent);
+  const inputSource = inputRegistry.list().find(source =>
+    (contentType && source.supportedTypes.includes(contentType)) ||
+    (hints.mimeType && source.supportedTypes.includes(hints.mimeType))
+  );
+
+  if (inputSource) {
+    const parsed = inputSource.parse(rawContent);
+    return {
+      ...parsed,
+      meta: {
+        ...parsed.meta,
+        contentType: contentType || parsed.hints.mimeType || hints.mimeType,
+        sourceType: parsed.source,
+      },
+      hints: {
+        ...hints,
+        ...parsed.hints,
+        mimeType: contentType || parsed.hints.mimeType || hints.mimeType,
+      },
+    };
+  }
+
+  return {
+    id: `item-${Date.now()}`,
+    source: contentType || hints.mimeType || 'unknown',
+    raw: rawContent,
+    meta: {
+      textContent: Buffer.from(rawContent).toString('utf-8'),
+      contentType: contentType || hints.mimeType,
+    },
+    hints,
+  };
+}
+
+function createDefaultPipeline(experienceStore?: ExperienceStore): Pipeline {
   const pipeline = new Pipeline();
-  const registry = new StrategyRegistry();
+  if (experienceStore) {
+    pipeline.setExperienceStore(experienceStore);
+  }
 
   // Register denoise strategies
   const htmlCleanStrategy = new HTMLCleanStrategy();
-  registry.register(htmlCleanStrategy);
   pipeline.registerStrategy(htmlCleanStrategy);
 
   const navFilterStrategy = new NavigationFilterStrategy();
-  registry.register(navFilterStrategy);
   pipeline.registerStrategy(navFilterStrategy);
 
   // Register semantic strategies
   const chunkingStrategy = new ChunkingStrategy();
-  registry.register(chunkingStrategy);
   pipeline.registerStrategy(chunkingStrategy);
 
   const relevanceFilterStrategy = new RelevanceFilterStrategy();
-  registry.register(relevanceFilterStrategy);
   pipeline.registerStrategy(relevanceFilterStrategy);
 
   // Register output strategies
   const jsonSchemaStrategy = new JSONSchemaStrategy();
-  registry.register(jsonSchemaStrategy);
   pipeline.registerStrategy(jsonSchemaStrategy);
 
   const markdownStrategy = new MarkdownStrategy();
-  registry.register(markdownStrategy);
   pipeline.registerStrategy(markdownStrategy);
 
   return pipeline;

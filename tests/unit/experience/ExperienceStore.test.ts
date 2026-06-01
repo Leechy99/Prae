@@ -152,6 +152,19 @@ describe('LocalExperienceStore', () => {
       expect(updated?.humanFeedback?.feedback).toBe('Needs better entity extraction');
     });
 
+    it('adds feedback by content item id', async () => {
+      const result = createMockProcessingResult({
+        contentItem: createMockContentItem({ id: 'content-for-feedback' }),
+      });
+      await store.record(result);
+
+      await store.addHumanFeedback('content-for-feedback', 'Useful result', undefined, 'default');
+
+      const updated = await store.getLatest('test');
+      expect(updated?.contentItemId).toBe('content-for-feedback');
+      expect(updated?.humanFeedback?.feedback).toBe('Useful result');
+    });
+
     it('includes corrected result when provided', async () => {
       const result = createMockProcessingResult();
       await store.record(result);
@@ -182,6 +195,19 @@ describe('LocalExperienceStore', () => {
       expect(learnable.length).toBeGreaterThan(0);
       expect(learnable[0]?.humanFeedback?.feedback).toBe('Good job');
       expect(learnable[0]?.learning.isLearned).toBe(false);
+    });
+  });
+
+  describe('getHistoricalContext', () => {
+    it('returns latest confidence for a content item id', async () => {
+      const result = createMockProcessingResult({
+        contentItem: createMockContentItem({ id: 'historical-content' }),
+      });
+      await store.record(result);
+
+      const historicalContext = await store.getHistoricalContext('historical-content');
+
+      expect(historicalContext).toBe(0.85);
     });
   });
 });

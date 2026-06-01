@@ -88,6 +88,26 @@ describe('Output Strategies', () => {
       expect(output.content.url).toBeUndefined();
     });
 
+    it('should prefer filteredText and include chunks when available', async () => {
+      const chunks = [{ id: 'chunk-1', index: 0, text: 'Filtered content', tokenEstimate: 4 }];
+      const item = createContentItem({
+        textContent: 'Original content',
+        cleanedText: 'Cleaned content',
+        filteredText: 'Filtered content',
+        chunks,
+      });
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      const output = result.output as {
+        content: { text: string };
+        chunks?: Array<{ id: string; index: number; text: string; tokenEstimate: number }>;
+      };
+      expect(output.content.text).toBe('Filtered content');
+      expect(output.chunks).toEqual(chunks);
+    });
+
     it('should use default confidence when not provided', async () => {
       const item = createContentItem({
         cleanedText: 'Test content',
@@ -203,6 +223,20 @@ describe('Output Strategies', () => {
       expect(output.markdown).not.toContain('#');
       expect(output.markdown).toContain('First paragraph.');
       expect(output.markdown).toContain('Second paragraph.');
+    });
+
+    it('should prefer filteredText over cleanedText', async () => {
+      const item = createContentItem({
+        cleanedText: 'Cleaned paragraph.',
+        filteredText: 'Filtered paragraph.',
+      });
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      const output = result.output as { markdown: string };
+      expect(output.markdown).toContain('Filtered paragraph.');
+      expect(output.markdown).not.toContain('Cleaned paragraph.');
     });
 
     it('should join paragraphs with double newlines', async () => {

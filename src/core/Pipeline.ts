@@ -96,34 +96,27 @@ export class Pipeline {
     let fusedOutput: unknown;
 
     // Execute denoise strategies
-    const denoiseStrategies = this.registry.listByPriority(StrategyType.DENOISE);
-    if (denoiseStrategies.length > 0) {
-      const denoiseExecutor = this.createExecutorForStrategies(denoiseStrategies);
-      const denoiseResults = await denoiseExecutor.executeStrategies([contentItem]);
-      const denoiseFused = denoiseExecutor.fuseResults(denoiseResults);
-      allExecutions.push(...this.convertToStrategyExecutions(denoiseResults, denoiseStrategies));
-      this.mergeOutput(contentItem, denoiseFused);
-      fusedOutput = denoiseFused;
+    const denoiseResult = await this.executeStrategiesByType(contentItem, StrategyType.DENOISE);
+    allExecutions.push(...denoiseResult.executions);
+    if (denoiseResult.executions.length > 0) {
+      this.mergeOutput(contentItem, denoiseResult.fusedOutput);
+      fusedOutput = denoiseResult.fusedOutput;
     }
 
     // Execute semantic strategies
-    const semanticStrategies = this.registry.listByPriority(StrategyType.SEMANTIC);
-    if (semanticStrategies.length > 0) {
-      const semanticExecutor = this.createExecutorForStrategies(semanticStrategies);
-      const semanticResults = await semanticExecutor.executeStrategies([contentItem]);
-      const semanticFused = semanticExecutor.fuseResults(semanticResults);
-      allExecutions.push(...this.convertToStrategyExecutions(semanticResults, semanticStrategies));
-      fusedOutput = semanticFused;
+    const semanticResult = await this.executeStrategiesByType(contentItem, StrategyType.SEMANTIC);
+    allExecutions.push(...semanticResult.executions);
+    if (semanticResult.executions.length > 0) {
+      this.mergeOutput(contentItem, semanticResult.fusedOutput);
+      fusedOutput = semanticResult.fusedOutput;
     }
 
     // Execute output strategies
-    const outputStrategies = this.registry.listByPriority(StrategyType.OUTPUT);
-    if (outputStrategies.length > 0) {
-      const outputExecutor = this.createExecutorForStrategies(outputStrategies);
-      const outputResults = await outputExecutor.executeStrategies([contentItem]);
-      const outputFused = outputExecutor.fuseResults(outputResults);
-      allExecutions.push(...this.convertToStrategyExecutions(outputResults, outputStrategies));
-      fusedOutput = outputFused;
+    contentItem.meta.strategiesApplied = allExecutions.filter(e => e.success).map(e => e.strategyId);
+    const outputResult = await this.executeStrategiesByType(contentItem, StrategyType.OUTPUT);
+    allExecutions.push(...outputResult.executions);
+    if (outputResult.executions.length > 0) {
+      fusedOutput = outputResult.fusedOutput;
     }
 
     // Get historical context if available
@@ -174,6 +167,41 @@ export class Pipeline {
     return result;
   }
 
+  private async executeStrategiesByType(
+    contentItem: ContentItem,
+    type: StrategyType
+  ): Promise<PipelineExecutedStrategies> {
+    const strategies = this.registry.listByPriority(type);
+    if (strategies.length === 0) {
+      return { executions: [], fusedOutput: undefined };
+    }
+
+    const executor = this.createExecutorForStrategies(strategies);
+    const results = await executor.executeStrategies([contentItem]);
+    return {
+      executions: this.convertToStrategyExecutions(results),
+      fusedOutput: type === StrategyType.OUTPUT ? this.fuseFinalOutputs(results) : executor.fuseResults(results),
+    };
+  }
+
+  private fuseFinalOutputs(results: { success: boolean; output?: unknown }[]): unknown {
+    const successfulResults = results.filter(result => result.success);
+
+    if (successfulResults.length === 0) {
+      return { type: 'failed', sources: 0, data: [] };
+    }
+
+    if (successfulResults.length === 1) {
+      return successfulResults[0].output;
+    }
+
+    return {
+      type: 'fused',
+      sources: successfulResults.length,
+      data: successfulResults.map(result => result.output),
+    };
+  }
+
   private createExecutorForStrategies(strategies: Strategy[]): StrategyExecutor {
     const executor = new StrategyExecutor();
     for (const strategy of strategies) {
@@ -183,8 +211,7 @@ export class Pipeline {
   }
 
   private convertToStrategyExecutions(
-    results: { strategyId: string; success: boolean; output?: unknown; error?: string }[],
-    strategies: Strategy[]
+    results: { strategyId: string; success: boolean; output?: unknown; error?: string }[]
   ): StrategyExecution[] {
     return results.map((result, index) => ({
       id: `exec-${Date.now()}-${index}`,
@@ -214,6 +241,33 @@ export class Pipeline {
       if (output.filteredText !== undefined) {
         contentItem.meta.filteredText = output.filteredText as string;
         contentItem.meta.textContent = output.filteredText as string;
+      }
+      if (output.chunks !== undefined) {
+        contentItem.meta.chunks = output.chunks;
+      }
+      if (output.totalChunks !== undefined) {
+        contentItem.meta.totalChunks = output.totalChunks;
+      }
+      if (output.removedTags !== undefined) {
+        contentItem.meta.removedTags = output.removedTags;
+      }
+      if (output.navRemoved !== undefined) {
+        contentItem.meta.navRemoved = output.navRemoved;
+      }
+      if (output.textLength !== undefined) {
+        contentItem.meta.textLength = output.textLength;
+      }
+      if (output.removedRatio !== undefined) {
+        contentItem.meta.removedRatio = output.removedRatio;
+      }
+      if (output.relevance !== undefined) {
+        contentItem.meta.relevance = output.relevance;
+      }
+      if (output.mentions !== undefined) {
+        contentItem.meta.mentions = output.mentions;
+      }
+      if (output.namedEntities !== undefined) {
+        contentItem.meta.namedEntities = output.namedEntities;
       }
       if (output.entities !== undefined) {
         contentItem.meta.entities = output.entities;

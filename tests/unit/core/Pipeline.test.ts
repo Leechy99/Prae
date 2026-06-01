@@ -91,6 +91,89 @@ describe('Pipeline', () => {
       expect(result.strategiesUsed[1].strategyId).toBe('semantic-1');
       expect(result.strategiesUsed[2].strategyId).toBe('output-1');
     });
+
+    it('passes semantic output into output strategies', async () => {
+      const contentItem = createContentItem({
+        textContent: 'Original content that is long enough for semantic processing.',
+      });
+
+      pipeline.registerStrategy(createMockStrategy('semantic-1', StrategyType.SEMANTIC, true, {
+        filteredText: 'Filtered semantic text',
+        chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+        totalChunks: 1,
+      }));
+
+      const outputStrategy: Strategy = {
+        id: 'output-1',
+        name: 'Output 1',
+        type: StrategyType.OUTPUT,
+        version: '1.0.0',
+        config: { enabled: true, priority: 1, params: {} },
+        canApply: () => true,
+        execute: async (item) => ({
+          id: 'exec-output-1',
+          strategyId: 'output-1',
+          startedAt: Date.now(),
+          completedAt: Date.now(),
+          success: true,
+          output: {
+            text: item.meta.textContent,
+            chunks: item.meta.chunks,
+          },
+        }),
+      };
+
+      pipeline.registerStrategy(outputStrategy);
+
+      const result = await pipeline.process(contentItem);
+
+      expect(contentItem.meta.filteredText).toBe('Filtered semantic text');
+      expect(contentItem.meta.textContent).toBe('Filtered semantic text');
+      expect(result.fusedOutput).toEqual({
+        text: 'Filtered semantic text',
+        chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+      });
+    });
+
+    it('keeps multiple final output strategy results as separate outputs', async () => {
+      const contentItem = createContentItem({
+        textContent: 'Original content that is long enough for output processing.',
+      });
+
+      pipeline.registerStrategy(createMockStrategy('semantic-1', StrategyType.SEMANTIC, true, {
+        filteredText: 'Filtered semantic text',
+        chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+      }));
+
+      pipeline.registerStrategy(createMockStrategy('json-output', StrategyType.OUTPUT, true, {
+        version: '1.0.0',
+        content: { text: 'Filtered semantic text' },
+        chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+      }));
+
+      pipeline.registerStrategy(createMockStrategy('markdown-output', StrategyType.OUTPUT, true, {
+        markdown: 'Filtered semantic text',
+        metadata: { source: 'test-source' },
+      }));
+
+      const result = await pipeline.process(contentItem);
+
+      expect(result.fusedOutput).toEqual({
+        type: 'fused',
+        sources: 2,
+        data: [
+          {
+            version: '1.0.0',
+            content: { text: 'Filtered semantic text' },
+            chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+          },
+          {
+            markdown: 'Filtered semantic text',
+            metadata: { source: 'test-source' },
+          },
+        ],
+      });
+    });
   });
 
   describe('retries on low confidence', () => {

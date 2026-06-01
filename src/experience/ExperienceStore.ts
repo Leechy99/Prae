@@ -41,6 +41,7 @@ export class LocalExperienceStore implements ExperienceStore {
     const record: ExperienceRecord = {
       id: `${tenantId}:${sourceType}:${randomBytes(8).toString('hex')}`,
       tenantId,
+      contentItemId: result.contentItem.id,
       input: {
         sourceType,
         contentType,
@@ -104,7 +105,7 @@ export class LocalExperienceStore implements ExperienceStore {
   ): Promise<void> {
     for (const records of this.records.values()) {
       for (const record of records) {
-        if (record.id === recordId && record.tenantId === tenantId) {
+        if ((record.id === recordId || record.contentItemId === recordId) && record.tenantId === tenantId) {
           record.humanFeedback = {
             correctedResult,
             feedback,
@@ -133,8 +134,15 @@ export class LocalExperienceStore implements ExperienceStore {
   }
 
   // Pipeline interface adapters (Pipeline.ts expects getHistoricalContext + recordProcessing)
-  async getHistoricalContext(_contentItemId: string): Promise<unknown> {
-    // Could be enhanced to look up by content hash or source
+  async getHistoricalContext(contentItemId: string): Promise<unknown> {
+    for (const records of this.records.values()) {
+      for (let index = records.length - 1; index >= 0; index--) {
+        const record = records[index];
+        if (record.contentItemId === contentItemId) {
+          return record.processing.finalConfidence;
+        }
+      }
+    }
     return undefined;
   }
 

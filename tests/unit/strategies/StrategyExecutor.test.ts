@@ -203,5 +203,21 @@ describe('StrategyExecutor', () => {
         data: [{ result: 'first' }, { result: 'second' }],
       });
     });
+
+    it('should merge recognized pipeline fields from multiple successful results', () => {
+      const results: ExecutionResult[] = [
+        { strategyId: 'html-clean', success: true, output: { cleanedText: 'Clean text', removedTags: 4 } },
+        { strategyId: 'navigation-filter', success: true, output: { navRemoved: 2, textLength: 10 } },
+      ];
+
+      const fused = executor.fuseResults(results);
+
+      expect(fused).toEqual({
+        cleanedText: 'Clean text',
+        removedTags: 4,
+        navRemoved: 2,
+        textLength: 10,
+      });
+    });
   });
 });
