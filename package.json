@@ -2,10 +2,13 @@
   "name": "prae",
   "version": "0.1.0",
   "description": "Intelligent noise removal + semantic extraction platform",
-  "main": "dist/index.js",
+  "main": "dist/api/index.js",
   "scripts": {
     "build": "tsc",
+    "start": "node dist/api/index.js",
+    "dev": "ts-node src/api/index.ts",
     "test": "jest",
+    "test:e2e": "playwright test",
     "lint": "tsc --noEmit"
   },
   "keywords": [
