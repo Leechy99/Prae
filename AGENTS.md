@@ -12,6 +12,11 @@
 - Full project inventory completed (Phase A/B/C)
 - Coverage report: 21 source files, 26 test files, 80% coverage threshold enforced
 
+### 2026-06-03 — Experience persistence
+- `LocalExperienceStore` gained optional JSON file persistence
+- Default API feedback storage now survives server restarts via `data/experience-store.json`
+- `PRAE_EXPERIENCE_STORE_PATH` can override the runtime persistence file
+
 ---
 
 ## Project Vision
@@ -81,7 +86,7 @@ src/
 │   └── ConfidenceScorer.ts # Confidence scoring with thresholds
 ├── experience/             # Learning system
 │   ├── ExperienceRecord.ts # Record type definitions
-│   └── ExperienceStore.ts  # Local in-memory store (LocalExperienceStore)
+│   └── ExperienceStore.ts  # Local store with optional JSON persistence
 ├── input/                  # Input source plugins
 │   ├── InputSource.ts      # Base interface
 │   ├── HTMLInputSource.ts  # HTML parser (jsdom)
@@ -199,11 +204,11 @@ npm run lint    # tsc --noEmit
 3. `/api/v1/process` uses `InputRegistry` / `HTMLInputSource` for parsing and returns `contentItemId`.
 4. Pipeline now merges stage outputs between DENOISE, SEMANTIC, and OUTPUT, so `filteredText` and `chunks` can reach output strategies.
 5. `/api/v1/experience/feedback` writes feedback to `ExperienceStore` by `contentItemId`.
+6. `LocalExperienceStore` supports optional JSON persistence; the default API store writes to `data/experience-store.json`, or `PRAE_EXPERIENCE_STORE_PATH` when set.
 
 ### Remaining gaps
 
 1. **API `index.ts` entry** — `src/api/index.ts` is the server entry, not `src/api/server.ts` as the MVP plan intended.
 2. **No `.env` / env-based config** — API key still falls back to `dev-api-key` in `auth.ts`; production should require explicit configuration.
-3. **Experience persistence** — `LocalExperienceStore` is in-memory only and does not survive process restarts.
-4. **No CI/CD pipeline** — `.github/workflows/` is not present.
-5. **Input coverage** — currently focused on HTML; document, audio, and enterprise knowledge sources remain design-stage capabilities.
+3. **No CI/CD pipeline** — `.github/workflows/` is not present.
+4. **Input coverage** — currently focused on HTML; document, audio, and enterprise knowledge sources remain design-stage capabilities.

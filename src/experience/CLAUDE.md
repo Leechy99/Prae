@@ -2,9 +2,9 @@
 
 ## Module Overview
 
-Local in-memory store for recording processing outcomes and learning. `LocalExperienceStore` implements a `Map`-based store keyed by `tenantId:sourceType`. Records `ProcessingResult` with input fingerprints, strategy sequences, outcomes, and optional human feedback.
+Local store for recording processing outcomes and learning. `LocalExperienceStore` keeps records in a `Map` keyed by `tenantId:sourceType`, and can optionally persist that map to a JSON file. Records `ProcessingResult` with input fingerprints, strategy sequences, outcomes, and optional human feedback.
 
-**Note:** Two `ExperienceStore` interfaces exist — one in `src/experience/ExperienceStore.ts` (full interface) and one stub in `src/core/Pipeline.ts` (only 2 methods). These are incompatible and need unification.
+**Note:** `LocalExperienceStore` includes Pipeline-compatible adapter methods (`getHistoricalContext`, `recordProcessing`) in addition to the full experience-store API.
 
 ## Public API
 
@@ -18,6 +18,8 @@ export interface ExperienceStore {
   getByOutcome(outcome: ProcessingResult['outcome'], tenantId?: string): Promise<ExperienceRecord[]>;
   addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<void>;
   getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>;
+  getHistoricalContext(contentItemId: string): Promise<unknown>;
+  recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>;
 }
 ```
 
@@ -26,12 +28,14 @@ export interface ExperienceStore {
 ```typescript
 // src/experience/ExperienceStore.ts
 export class LocalExperienceStore implements ExperienceStore {
-  constructor()
+  constructor(options?: { filePath?: string })
   async record(result: ProcessingResult, tenantId?: string): Promise<void>
   async getLatest(sourceType: string, tenantId?: string): Promise<ExperienceRecord | null>
   async getByOutcome(outcome: ProcessingResult['outcome'], tenantId?: string): Promise<ExperienceRecord[]>
   async addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<void>
   async getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>
+  async getHistoricalContext(contentItemId: string): Promise<unknown>
+  async recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>
 }
 ```
 
@@ -82,6 +86,8 @@ export interface Learning {
 | Dependency | Purpose | Source |
 |-----------|---------|--------|
 | `crypto` (Node.js built-in) | SHA-256 hashing via `createHash` | — |
+| `fs/promises` (Node.js built-in) | Optional JSON persistence | — |
+| `path` (Node.js built-in) | Persistence directory handling | — |
 | `../types` | `ProcessingResult`, `ContentItem` | `src/types/index.ts` |
 | `./ExperienceRecord` | `ExperienceRecord` type | `src/experience/ExperienceRecord.ts` |
 
@@ -108,7 +114,9 @@ graph LR
 
 ### Storage
 
-`LocalExperienceStore` uses an in-memory `Map<string, ExperienceRecord[]>` keyed by `${tenantId}:${sourceType}`. **Not persistent** — data is lost on process restart.
+`LocalExperienceStore` uses an in-memory `Map<string, ExperienceRecord[]>` keyed by `${tenantId}:${sourceType}`. When constructed with `{ filePath }`, it lazily loads records from a versioned JSON file and writes changes back after `record()` and `addHumanFeedback()`.
+
+The default API router constructs a file-backed store outside test mode. Its default path is `data/experience-store.json`, and `PRAE_EXPERIENCE_STORE_PATH` can override it. No-argument construction remains in-memory for tests and custom injected stores.
 
 ### Content Fingerprinting
 
@@ -141,30 +149,19 @@ Returns records where `humanFeedback !== undefined && learning.isLearned === fal
 
 ### addHumanFeedback() Behavior
 
-Updates the record in-place, setting `humanFeedback` and `updatedAt`:
+Updates the record in-place, setting `humanFeedback` and `updatedAt`, then persists when `filePath` is configured:
 
 ```typescript
 record.humanFeedback = { correctedResult, feedback };
 record.updatedAt = Date.now();
 ```
 
-### Interface Split (Known Issue)
-
-`src/core/Pipeline.ts` defines its own stub interface (lines 10-13):
-```typescript
-export interface ExperienceStore {
-  getHistoricalContext(contentItemId: string): Promise<unknown>;
-  recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>;
-}
-```
-
-This is **incompatible** with `src/experience/ExperienceStore.ts`'s full interface. Pipeline uses the stub, so `LocalExperienceStore` cannot be directly attached without adapter changes.
-
 ## Testing
 
 | Test File | Coverage |
 |-----------|----------|
-| `tests/unit/experience/ExperienceStore.test.ts` | Full LocalExperienceStore API |
+| `tests/unit/experience/ExperienceStore.test.ts` | Full LocalExperienceStore API and restart persistence |
+| `tests/unit/api/routes.test.ts` | Feedback route writes through configured store and persists with default file-backed store |
 
 ## Related Files
 
@@ -176,5 +173,6 @@ This is **incompatible** with `src/experience/ExperienceStore.ts`'s full interfa
 
 ## Changelog
 
+- **2026-06-03** — Documented optional JSON persistence and API restart-survival behavior
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, storage details, and interface incompatibility warning
 - **2026-04-23** — Updated to new format with Mermaid diagram, complete API signatures, dependency table
