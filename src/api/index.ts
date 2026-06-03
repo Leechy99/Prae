@@ -1,8 +1,9 @@
 import { startServer } from './server';
+import { getRuntimeConfig } from './config';
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+const config = getRuntimeConfig();
 
-startServer(PORT).catch((err) => {
+startServer(config.port).catch((err) => {
   console.error('Failed to start server:', err);
   process.exit(1);
 });

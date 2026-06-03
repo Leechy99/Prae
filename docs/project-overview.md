@@ -12,6 +12,10 @@
   中文：默认 API 反馈流程会把本地经验记录持久化到 `data/experience-store.json`；部署时可通过 `PRAE_EXPERIENCE_STORE_PATH` 覆盖路径。
 - EN: Restart persistence is covered by unit tests for both `LocalExperienceStore` and `/api/v1/experience/feedback`.
   中文：`LocalExperienceStore` 与 `/api/v1/experience/feedback` 都已补充重启持久化单元测试。
+- EN: API runtime configuration is centralized in `src/api/config.ts`; the server entrypoint, auth middleware, and Playwright setup now share the same port/API key parsing.
+  中文：API 运行时配置已集中到 `src/api/config.ts`；服务入口、鉴权中间件和 Playwright 设置现在复用同一套端口/API Key 解析逻辑。
+- EN: Local development keeps simple defaults via `.env.example`, while production fails fast if `API_KEY` or `PORT` is missing or invalid.
+  中文：本地开发通过 `.env.example` 保留简单默认值；生产环境缺少或错误配置 `API_KEY`、`PORT` 时会快速失败。
 
 ### 2026-06-01
 
@@ -162,6 +166,17 @@ Raw Content
 - Jest for unit tests / Jest 单元测试
 - Playwright for E2E tests / Playwright E2E 测试
 
+## Runtime Configuration / 运行时配置
+
+- EN: `src/api/config.ts` is the single source for API runtime settings.
+  中文：`src/api/config.ts` 是 API 运行时设置的统一来源。
+- EN: Local defaults are `NODE_ENV=development`, `PORT=3000`, and `API_KEY=dev-api-key`; `.env.example` documents these values.
+  中文：本地默认值为 `NODE_ENV=development`、`PORT=3000`、`API_KEY=dev-api-key`；`.env.example` 已记录这些配置。
+- EN: Production requires explicit `API_KEY` and `PORT`, and invalid ports are rejected at startup.
+  中文：生产环境必须显式设置 `API_KEY` 和 `PORT`，非法端口会在启动时被拒绝。
+- EN: Playwright uses the same config parser with test defaults, so E2E setup stays aligned with the server.
+  中文：Playwright 使用同一个配置解析器并注入测试默认值，因此 E2E 设置与服务端保持一致。
+
 ## Current Status / 当前状态
 
 EN: Prae has a working MVP foundation:
@@ -180,6 +195,8 @@ EN: Prae has a working MVP foundation:
   中文：已有置信度评分和重试/升级结果判断。
 - EN: Express API routes and test configuration are available.
   中文：已有 Express API 层和测试配置。
+- EN: API port and API key configuration are centralized, with production fail-fast validation.
+  中文：API 端口和 API Key 配置已集中管理，并具备生产环境快速失败校验。
 - EN: The feedback API is connected to the local experience store.
   中文：反馈 API 已与本地经验存储打通。
 - EN: Local experience feedback survives service restarts when the default API file-backed store is used.
@@ -193,8 +210,6 @@ EN: Prae has a working MVP foundation:
   中文：目前主要处理 HTML，其他文档、音频、企业知识库等输入仍处于设计愿景。
 - EN: Experience storage now supports local file persistence, but richer retrieval APIs and strategy-update learning are not implemented yet.
   中文：经验存储已支持本地文件持久化，但更完整的检索 API 和策略更新学习机制尚未实现。
-- EN: API key handling is still development-oriented and needs stronger environment-based production configuration.
-  中文：API key 仍是开发期配置形态，缺少完整环境变量配置。
 - EN: CI/CD is not yet configured.
   中文：CI/CD 工作流尚未建立。
 

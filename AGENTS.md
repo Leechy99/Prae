@@ -17,6 +17,11 @@
 - Default API feedback storage now survives server restarts via `data/experience-store.json`
 - `PRAE_EXPERIENCE_STORE_PATH` can override the runtime persistence file
 
+### 2026-06-03 — Runtime configuration
+- API port and API key now come from shared `src/api/config.ts`
+- Local development keeps simple defaults via `.env.example`
+- Production startup fails fast when `API_KEY` or `PORT` is missing
+
 ---
 
 ## Project Vision
@@ -77,6 +82,7 @@ graph TD
 src/
 ├── api/                    # REST API layer
 │   ├── index.ts            # Entry point (starts server)
+│   ├── config.ts           # Shared runtime config (port, API key, env)
 │   ├── server.ts           # Express app factory
 │   ├── routes.ts           # Route definitions (/process, /strategies, /experience/feedback)
 │   ├── middleware/auth.ts  # API key auth middleware
@@ -142,6 +148,8 @@ npm run build   # tsc → dist/
 npm start       # node dist/api/index.js (default port 3000)
 ```
 
+Runtime configuration is centralized in `src/api/config.ts`. In local development, omitted values default to `NODE_ENV=development`, `PORT=3000`, and `API_KEY=dev-api-key`; copy `.env.example` when you want explicit local settings. In production, `API_KEY` and `PORT` must be set or startup fails immediately.
+
 ### Test
 ```bash
 npm test              # Jest unit tests
@@ -162,7 +170,7 @@ npm run lint    # tsc --noEmit
 - **Unit tests:** 26 test files covering all modules
 - **E2E tests:** 3 Playwright specs for API health, processing, auth
 - **Test config:** `jest.config.js` maps `src/` and `tests/` roots with `ts-jest` preset
-- **E2E config:** `playwright.config.ts` targets `http://localhost:3000`
+- **E2E config:** `playwright.config.ts` reads port and API key through `src/api/config.ts`, defaulting to `http://localhost:3000` for tests
 
 ---
 
@@ -205,10 +213,10 @@ npm run lint    # tsc --noEmit
 4. Pipeline now merges stage outputs between DENOISE, SEMANTIC, and OUTPUT, so `filteredText` and `chunks` can reach output strategies.
 5. `/api/v1/experience/feedback` writes feedback to `ExperienceStore` by `contentItemId`.
 6. `LocalExperienceStore` supports optional JSON persistence; the default API store writes to `data/experience-store.json`, or `PRAE_EXPERIENCE_STORE_PATH` when set.
+7. Runtime API configuration is centralized in `src/api/config.ts`; production requires explicit `API_KEY` and `PORT`.
 
 ### Remaining gaps
 
 1. **API `index.ts` entry** — `src/api/index.ts` is the server entry, not `src/api/server.ts` as the MVP plan intended.
-2. **No `.env` / env-based config** — API key still falls back to `dev-api-key` in `auth.ts`; production should require explicit configuration.
-3. **No CI/CD pipeline** — `.github/workflows/` is not present.
-4. **Input coverage** — currently focused on HTML; document, audio, and enterprise knowledge sources remain design-stage capabilities.
+2. **No CI/CD pipeline** — `.github/workflows/` is not present.
+3. **Input coverage** — currently focused on HTML; document, audio, and enterprise knowledge sources remain design-stage capabilities.
