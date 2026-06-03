@@ -1,4 +1,7 @@
 import { LocalExperienceStore } from '../../../src/experience/ExperienceStore';
+import { mkdtemp, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import type { ContentItem, ProcessingResult, StrategyExecution, ConfidenceScore } from '../../../src/types';
 
 function createMockContentItem(overrides: Partial<ContentItem> = {}): ContentItem {
@@ -177,6 +180,46 @@ describe('LocalExperienceStore', () => {
 
       const updated = await store.getLatest('test');
       expect(updated?.humanFeedback?.correctedResult).toEqual(correctedResult);
+    });
+  });
+
+  describe('persistence', () => {
+    let tempDir: string;
+
+    beforeEach(async () => {
+      tempDir = await mkdtemp(join(tmpdir(), 'prae-experience-'));
+    });
+
+    afterEach(async () => {
+      await rm(tempDir, { force: true, recursive: true });
+    });
+
+    it('reloads feedback after a store restart', async () => {
+      const filePath = join(tempDir, 'experience.json');
+      const contentItemId = 'persistent-content';
+      const result = createMockProcessingResult({
+        contentItem: createMockContentItem({ id: contentItemId }),
+      });
+
+      const firstStore = new LocalExperienceStore({ filePath });
+      await firstStore.record(result);
+      await firstStore.addHumanFeedback(
+        contentItemId,
+        'Still here after restart',
+        { rating: 5, feedback: 'Still here after restart' }
+      );
+
+      const restartedStore = new LocalExperienceStore({ filePath });
+      const latest = await restartedStore.getLatest('test');
+      const learnable = await restartedStore.getLearnableRecords();
+
+      expect(latest?.contentItemId).toBe(contentItemId);
+      expect(latest?.humanFeedback?.feedback).toBe('Still here after restart');
+      expect(learnable).toHaveLength(1);
+      expect(learnable[0]?.humanFeedback?.correctedResult).toEqual({
+        rating: 5,
+        feedback: 'Still here after restart',
+      });
     });
   });
 

@@ -1,7 +1,10 @@
 import express, { Express } from 'express';
 import request from 'supertest';
 import { createRouter } from '../../../src/api/routes';
-import type { ExperienceStore } from '../../../src/experience/ExperienceStore';
+import { LocalExperienceStore, type ExperienceStore } from '../../../src/experience/ExperienceStore';
+import { mkdtemp, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('API Routes', () => {
   let app: Express;
@@ -165,6 +168,49 @@ describe('API Routes', () => {
         'Good processing',
         { rating: 4, feedback: 'Good processing' }
       );
+    });
+
+    it('persists feedback across API store restarts', async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'prae-api-experience-'));
+      const filePath = join(tempDir, 'experience.json');
+      const previousStorePath = process.env.PRAE_EXPERIENCE_STORE_PATH;
+      process.env.PRAE_EXPERIENCE_STORE_PATH = filePath;
+
+      try {
+        const persistentApp = express();
+        persistentApp.use(express.json());
+        persistentApp.use(createRouter());
+
+        const htmlContent = '<html><body>Persistent feedback content</body></html>';
+        const processResponse = await request(persistentApp)
+          .post('/api/v1/process')
+          .set('X-API-Key', 'dev-api-key')
+          .send({ content: Buffer.from(htmlContent).toString('base64'), contentType: 'text/html' });
+
+        expect(processResponse.status).toBe(200);
+        const contentItemId = processResponse.body.result.contentItemId;
+
+        const feedbackResponse = await request(persistentApp)
+          .post('/api/v1/experience/feedback')
+          .set('X-API-Key', 'dev-api-key')
+          .send({ contentItemId, rating: 5, feedback: 'Persists after restart' });
+
+        expect(feedbackResponse.status).toBe(200);
+
+        const restartedStore = new LocalExperienceStore({ filePath });
+        const learnable = await restartedStore.getLearnableRecords();
+
+        expect(learnable).toHaveLength(1);
+        expect(learnable[0]?.contentItemId).toBe(contentItemId);
+        expect(learnable[0]?.humanFeedback?.feedback).toBe('Persists after restart');
+      } finally {
+        if (previousStorePath === undefined) {
+          delete process.env.PRAE_EXPERIENCE_STORE_PATH;
+        } else {
+          process.env.PRAE_EXPERIENCE_STORE_PATH = previousStorePath;
+        }
+        await rm(tempDir, { force: true, recursive: true });
+      }
     });
   });
 });

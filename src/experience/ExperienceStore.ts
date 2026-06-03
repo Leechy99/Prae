@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
+import { mkdir, readFile, rename, writeFile } from 'fs/promises';
+import { dirname } from 'path';
 import type { ProcessingResult } from '../types';
 import type { ExperienceRecord } from './ExperienceRecord';
 
@@ -25,10 +27,28 @@ function hashContent(content: Uint8Array): string {
   return createHash('sha256').update(content).digest().slice(0, 16).toString('hex');
 }
 
+export interface LocalExperienceStoreOptions {
+  filePath?: string;
+}
+
+interface PersistedExperienceStore {
+  version: 1;
+  records: Array<[string, ExperienceRecord[]]>;
+}
+
 export class LocalExperienceStore implements ExperienceStore {
   private records: Map<string, ExperienceRecord[]> = new Map();
+  private readonly filePath?: string;
+  private loadPromise?: Promise<void>;
+  private writeQueue: Promise<void> = Promise.resolve();
+
+  constructor(options: LocalExperienceStoreOptions = {}) {
+    this.filePath = options.filePath;
+  }
 
   async record(result: ProcessingResult, tenantId: string = 'default'): Promise<void> {
+    await this.ensureLoaded();
+
     const sourceType = this.extractSourceType(result.contentItem);
     const contentType = result.contentItem.hints.mimeType ?? 'unknown';
     const rawHash = hashContent(result.contentItem.raw);
@@ -67,9 +87,12 @@ export class LocalExperienceStore implements ExperienceStore {
     const existing = this.records.get(key) ?? [];
     existing.push(record);
     this.records.set(key, existing);
+    await this.persist();
   }
 
   async getLatest(sourceType: string, tenantId: string = 'default'): Promise<ExperienceRecord | null> {
+    await this.ensureLoaded();
+
     const key = `${tenantId}:${sourceType}`;
     const records = this.records.get(key);
     if (!records || records.length === 0) {
@@ -82,6 +105,8 @@ export class LocalExperienceStore implements ExperienceStore {
     outcome: ProcessingResult['outcome'],
     tenantId: string = 'default'
   ): Promise<ExperienceRecord[]> {
+    await this.ensureLoaded();
+
     const results: ExperienceRecord[] = [];
     for (const [key, records] of this.records.entries()) {
       const keyTenantId = key.split(':')[0];
@@ -103,6 +128,8 @@ export class LocalExperienceStore implements ExperienceStore {
     correctedResult?: unknown,
     tenantId: string = 'default'
   ): Promise<void> {
+    await this.ensureLoaded();
+
     for (const records of this.records.values()) {
       for (const record of records) {
         if ((record.id === recordId || record.contentItemId === recordId) && record.tenantId === tenantId) {
@@ -111,6 +138,7 @@ export class LocalExperienceStore implements ExperienceStore {
             feedback,
           };
           record.updatedAt = Date.now();
+          await this.persist();
           return;
         }
       }
@@ -118,6 +146,8 @@ export class LocalExperienceStore implements ExperienceStore {
   }
 
   async getLearnableRecords(tenantId: string = 'default'): Promise<ExperienceRecord[]> {
+    await this.ensureLoaded();
+
     const results: ExperienceRecord[] = [];
     for (const [key, records] of this.records.entries()) {
       const keyTenantId = key.split(':')[0];
@@ -135,6 +165,8 @@ export class LocalExperienceStore implements ExperienceStore {
 
   // Pipeline interface adapters (Pipeline.ts expects getHistoricalContext + recordProcessing)
   async getHistoricalContext(contentItemId: string): Promise<unknown> {
+    await this.ensureLoaded();
+
     for (const records of this.records.values()) {
       for (let index = records.length - 1; index >= 0; index--) {
         const record = records[index];
@@ -153,5 +185,56 @@ export class LocalExperienceStore implements ExperienceStore {
 
   private extractSourceType(contentItem: { source: string; meta: Record<string, unknown> }): string {
     return contentItem.meta.sourceType as string ?? contentItem.source.split(':')[0];
+  }
+
+  private async ensureLoaded(): Promise<void> {
+    if (!this.filePath) {
+      return;
+    }
+
+    this.loadPromise ??= this.load();
+    await this.loadPromise;
+  }
+
+  private async load(): Promise<void> {
+    if (!this.filePath) {
+      return;
+    }
+
+    try {
+      const raw = await readFile(this.filePath, 'utf-8');
+      const persisted = JSON.parse(raw) as PersistedExperienceStore;
+
+      if (persisted.version !== 1 || !Array.isArray(persisted.records)) {
+        throw new Error('Unsupported experience store format');
+      }
+
+      this.records = new Map(persisted.records);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.filePath) {
+      return;
+    }
+
+    const snapshot: PersistedExperienceStore = {
+      version: 1,
+      records: Array.from(this.records.entries()),
+    };
+
+    this.writeQueue = this.writeQueue.then(async () => {
+      await mkdir(dirname(this.filePath!), { recursive: true });
+      const tempPath = `${this.filePath}.${randomBytes(6).toString('hex')}.tmp`;
+      await writeFile(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf-8');
+      await rename(tempPath, this.filePath!);
+    });
+
+    await this.writeQueue;
   }
 }

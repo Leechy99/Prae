@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { join } from 'path';
 import { Pipeline } from '../core/Pipeline';
 import { Strategy, StrategyType } from '../strategies/base/Strategy';
 import { InputRegistry } from '../input/InputRegistry';
@@ -22,7 +23,7 @@ export interface ApiConfig {
 
 export function createRouter(config: ApiConfig = {}): Router {
   const router = Router();
-  const experienceStore = config.experienceStore || new LocalExperienceStore();
+  const experienceStore = config.experienceStore || createDefaultExperienceStore();
   const pipeline = config.pipeline || createDefaultPipeline(experienceStore);
   const inputRegistry = config.inputRegistry || createDefaultInputRegistry();
 
@@ -136,6 +137,17 @@ export function createRouter(config: ApiConfig = {}): Router {
   router.use('/api/v1', apiV1);
 
   return router;
+}
+
+function createDefaultExperienceStore(): ExperienceStore {
+  const filePath = process.env.PRAE_EXPERIENCE_STORE_PATH;
+  const shouldPersist = filePath || process.env.NODE_ENV !== 'test';
+
+  return shouldPersist
+    ? new LocalExperienceStore({
+        filePath: filePath ?? join(process.cwd(), 'data', 'experience-store.json'),
+      })
+    : new LocalExperienceStore();
 }
 
 function createDefaultInputRegistry(): InputRegistry {
