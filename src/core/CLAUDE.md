@@ -24,7 +24,7 @@ export class Pipeline {
   mergeOutput(contentItem: ContentItem, fusedOutput: unknown): void
 }
 
-// ExperienceStore interface (expected by Pipeline)
+// ExperienceStore interface (imported from src/experience/ExperienceStore.ts)
 export interface ExperienceStore {
   getHistoricalContext(contentItemId: string): Promise<unknown>
   recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>
@@ -187,7 +187,7 @@ for retryCount in 0..maxRetries:
 
 ### Experience Store Integration
 
-`Pipeline.setExperienceStore()` accepts an `ExperienceStore` interface (defined in Pipeline.ts as a stub). The `recordProcessing` call is fire-and-forget — errors are silently swallowed.
+`Pipeline.setExperienceStore()` accepts the shared `ExperienceStore` interface from `src/experience/ExperienceStore.ts`. During processing, Pipeline asks the store for historical confidence context by `contentItem.id`, then records the finished `ProcessingResult` through `recordProcessing()`. Store errors are caught and ignored so the main processing response is not blocked by persistence failures.
 
 ### Module Augmentation
 
@@ -206,10 +206,12 @@ The API layer extends `Pipeline` interface via declaration merging to add `getRe
 |------|---------|
 | `../strategies/base/StrategyExecutor.ts` | Executes registered strategies |
 | `../strategies/base/StrategyRegistry.ts` | Strategy management |
-| `../experience/ExperienceStore.ts` | Experience store (interface stub in Pipeline.ts) |
+| `../experience/ExperienceStore.ts` | Shared ExperienceStore interface and LocalExperienceStore implementation |
 | `../../CLAUDE.md` | Root documentation |
 
 ## Changelog
+
+- **2026-06-05** - Updated ExperienceStore integration notes to match the shared store interface
 
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, pipeline flow diagrams, and retry logic explanation
 - **2026-04-23** — Updated to new format with Mermaid diagram, complete API signatures, dependency table

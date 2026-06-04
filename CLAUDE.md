@@ -17,6 +17,11 @@
 - Default API feedback storage now survives server restarts via `data/experience-store.json`
 - `PRAE_EXPERIENCE_STORE_PATH` can override the runtime persistence file
 
+### 2026-06-05 - Documentation alignment
+- API, Core, and Experience module docs now describe the persisted feedback loop
+- Removed stale notes that claimed the feedback route schema was not exported
+- Clarified that feedback can be persisted and reloaded by `contentItemId`
+
 ---
 
 ## Project Vision

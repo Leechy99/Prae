@@ -46,6 +46,7 @@ export class LocalExperienceStore implements ExperienceStore {
 export interface ExperienceRecord {
   id: string;                    // "${tenantId}:${sourceType}:${randomHex}"
   tenantId: string;
+  contentItemId?: string;
   input: ExperienceRecordInput;
   processing: ExperienceRecordProcessing;
   outcome: ProcessingResult['outcome'];
@@ -118,6 +119,17 @@ graph LR
 
 The default API router constructs a file-backed store outside test mode. Its default path is `data/experience-store.json`, and `PRAE_EXPERIENCE_STORE_PATH` can override it. No-argument construction remains in-memory for tests and custom injected stores.
 
+The persisted file format is versioned:
+
+```typescript
+interface PersistedExperienceStore {
+  version: 1;
+  records: Array<[string, ExperienceRecord[]]>;
+}
+```
+
+Writes create the parent directory, write a temporary JSON file, then rename it into place. This keeps the MVP file store simple while avoiding partially written target files in normal operation.
+
 ### Content Fingerprinting
 
 ```typescript
@@ -149,7 +161,7 @@ Returns records where `humanFeedback !== undefined && learning.isLearned === fal
 
 ### addHumanFeedback() Behavior
 
-Updates the record in-place, setting `humanFeedback` and `updatedAt`, then persists when `filePath` is configured:
+Updates the matching record in-place, setting `humanFeedback` and `updatedAt`, then persists when `filePath` is configured. A match can be either the generated experience record `id` or the `contentItemId` returned by `/api/v1/process`:
 
 ```typescript
 record.humanFeedback = { correctedResult, feedback };
@@ -167,11 +179,13 @@ record.updatedAt = Date.now();
 
 | Path | Purpose |
 |------|---------|
-| `../core/Pipeline.ts` | Uses ExperienceStore stub interface |
+| `../core/Pipeline.ts` | Records processing results and reads historical confidence context |
 | `../types/index.ts` | `ProcessingResult` type |
 | `../../CLAUDE.md` | Root documentation |
 
 ## Changelog
+
+- **2026-06-05** - Documented persisted file format and feedback lookup by `contentItemId`
 
 - **2026-06-03** — Documented optional JSON persistence and API restart-survival behavior
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, storage details, and interface incompatibility warning

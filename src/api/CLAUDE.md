@@ -29,6 +29,8 @@ export function startServer(port: number): Promise<Express>
 // src/api/routes.ts
 export interface ApiConfig {
   pipeline?: Pipeline;
+  inputRegistry?: InputRegistry;
+  experienceStore?: ExperienceStore;
 }
 export function createRouter(config?: ApiConfig): Router
 ```
@@ -77,6 +79,7 @@ export function validateRequest(schema: z.ZodSchema): (req: Request, res: Respon
   "success": true,
   "result": {
     "id": "item-1234567890",
+    "contentItemId": "item-1234567890",
     "outcome": "SUCCESS",
     "confidence": { "overall": 0.92, ... },
     "processingTimeMs": 145,
@@ -92,6 +95,8 @@ export function validateRequest(schema: z.ZodSchema): (req: Request, res: Respon
 // src/api/routes.ts
 export interface ApiConfig {
   pipeline?: Pipeline;
+  inputRegistry?: InputRegistry;
+  experienceStore?: ExperienceStore;
 }
 
 // src/api/middleware/auth.ts
@@ -123,6 +128,7 @@ type FeedbackRequest = { contentItemId: string; rating: number; feedback?: strin
 | `RelevanceFilterStrategy` | Semantic strategy | `../strategies/semantic/RelevanceFilterStrategy` |
 | `JSONSchemaStrategy` | Output strategy | `../strategies/output/JSONSchemaStrategy` |
 | `MarkdownStrategy` | Output strategy | `../strategies/output/MarkdownStrategy` |
+| `ExperienceStore` / `LocalExperienceStore` | Feedback storage and default persistence | `../experience/ExperienceStore` |
 
 ## File Structure
 
@@ -170,8 +176,17 @@ graph LR
 1. Receive `{ content: base64String, contentType?: string }`
 2. Decode base64 to `Uint8Array`
 3. `InputRegistry.detectMimeType()` identifies content type
-4. Construct `ContentItem` and call `Pipeline.process()`
-5. Return `{ success, result: { id, outcome, confidence, processingTimeMs, fusedOutput, strategiesUsed } }`
+4. Construct `ContentItem` via a registered input source when available
+5. Call `Pipeline.process()`, which records processing output through the configured `ExperienceStore`
+6. Return `{ success, result: { id, contentItemId, outcome, confidence, processingTimeMs, fusedOutput, strategiesUsed } }`
+
+### Feedback Persistence Flow
+
+1. `/api/v1/process` returns `result.contentItemId`
+2. `Pipeline` records the processing result through `ExperienceStore.recordProcessing()`
+3. `/api/v1/experience/feedback` accepts that `contentItemId` and calls `ExperienceStore.addHumanFeedback()`
+4. The default router store persists records to `data/experience-store.json` outside test mode
+5. `PRAE_EXPERIENCE_STORE_PATH` can override the persistence file path
 
 ### Authentication Flow
 
@@ -182,7 +197,6 @@ graph LR
 
 ### Known Issues
 
-- `feedbackRequestSchema` is imported in `routes.ts:14` but **not currently exported** from `validators/process.ts` — the `/experience/feedback` route may have issues
 - API key defaults to hardcoded `'dev-api-key'` — no `.env` validation at startup
 - No rate limiting on endpoints
 - Request body size limit: 10mb (Express default)
@@ -191,7 +205,7 @@ graph LR
 
 | Test File | Scope |
 |-----------|-------|
-| `tests/unit/api/routes.test.ts` | All endpoints, auth middleware, validation |
+| `tests/unit/api/routes.test.ts` | All endpoints, auth middleware, validation, feedback persistence |
 | `tests/e2e/processing.spec.ts` | Full HTTP round-trip with Playwright |
 
 ## Related Files
@@ -204,6 +218,8 @@ graph LR
 | `../../CLAUDE.md` | Root documentation |
 
 ## Changelog
+
+- **2026-06-05** - Aligned API docs with persisted feedback flow and current `ApiConfig`
 
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, endpoint tables, and dependency matrix
 - **2026-04-23** — Updated to new format with Mermaid diagram, complete API signatures, dependency table
