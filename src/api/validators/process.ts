@@ -31,3 +31,13 @@ export const feedbackRequestSchema = z.object({
 });
 
 export type FeedbackRequest = z.infer<typeof feedbackRequestSchema>;
+
+export const experienceQuerySchema = z.object({
+  filter: z.enum(['recent', 'learnable']).default('recent'),
+  tenantId: z.string().min(1).optional(),
+  sourceType: z.string().min(1).optional(),
+  outcome: z.enum(['SUCCESS', 'RETRY_SUCCESS', 'CLOUD_ESCALATED', 'HUMAN_INTERVENTION', 'FAILED']).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export type ExperienceQuery = z.infer<typeof experienceQuerySchema>;

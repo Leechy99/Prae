@@ -16,6 +16,7 @@ export interface ExperienceStore {
   record(result: ProcessingResult, tenantId?: string): Promise<void>;
   getLatest(sourceType: string, tenantId?: string): Promise<ExperienceRecord | null>;
   getByOutcome(outcome: ProcessingResult['outcome'], tenantId?: string): Promise<ExperienceRecord[]>;
+  getRecords(query?: ExperienceRecordQuery): Promise<ExperienceRecord[]>;
   addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<void>;
   getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>;
   getHistoricalContext(contentItemId: string): Promise<unknown>;
@@ -32,6 +33,7 @@ export class LocalExperienceStore implements ExperienceStore {
   async record(result: ProcessingResult, tenantId?: string): Promise<void>
   async getLatest(sourceType: string, tenantId?: string): Promise<ExperienceRecord | null>
   async getByOutcome(outcome: ProcessingResult['outcome'], tenantId?: string): Promise<ExperienceRecord[]>
+  async getRecords(query?: ExperienceRecordQuery): Promise<ExperienceRecord[]>
   async addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<void>
   async getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>
   async getHistoricalContext(contentItemId: string): Promise<unknown>
@@ -80,6 +82,16 @@ export interface Learning {
   isLearned: boolean;
   strategyUpdates?: Record<string, unknown>;
 }
+
+export type ExperienceRecordFilter = 'recent' | 'learnable';
+
+export interface ExperienceRecordQuery {
+  filter?: ExperienceRecordFilter;
+  tenantId?: string;
+  sourceType?: string;
+  outcome?: ProcessingResult['outcome'];
+  limit?: number;
+}
 ```
 
 ## Dependencies
@@ -108,7 +120,8 @@ graph LR
     B --> C["ExperienceRecord\nstored in Map"]
     C --> D["getLatest()\ngetByOutcome()"]
     C --> E["addHumanFeedback()"]
-    C --> F["getLearnableRecords()\n(humanFeedback != null && !isLearned)"]
+    C --> F["getRecords()\nrecent or learnable filters"]
+    F --> G["getLearnableRecords()\ncompatibility wrapper"]
 ```
 
 ## Important Implementation Details
@@ -157,7 +170,22 @@ async getLatest(sourceType: string, tenantId: string = 'default'): Promise<Exper
 
 ### getLearnableRecords Logic
 
-Returns records where `humanFeedback !== undefined && learning.isLearned === false`. These are records awaiting integration into strategy updates.
+Returns records where `humanFeedback !== undefined && learning.isLearned === false`. These are records awaiting integration into strategy updates. This method now delegates to `getRecords({ filter: 'learnable', tenantId })` so the API and legacy store callers share the same filtering path.
+
+### getRecords() Query Logic
+
+`getRecords()` is the read API used by `GET /api/v1/experience`. It loads persisted records when needed, filters by tenant, optional `sourceType`, optional `outcome`, and optional mode:
+
+| Query field | Behavior |
+|-------------|----------|
+| `filter: 'recent'` or omitted | Return matching records newest first |
+| `filter: 'learnable'` | Return records with human feedback where `learning.isLearned === false` |
+| `tenantId` | Defaults to `default` |
+| `sourceType` | Matches `record.input.sourceType` |
+| `outcome` | Matches `record.outcome` |
+| `limit` | Returns only the first `limit` records after sorting |
+
+Sorting uses `createdAt` descending with insertion order as a tie-breaker, which keeps newest records stable even when tests create several records within the same millisecond.
 
 ### addHumanFeedback() Behavior
 
@@ -172,8 +200,8 @@ record.updatedAt = Date.now();
 
 | Test File | Coverage |
 |-----------|----------|
-| `tests/unit/experience/ExperienceStore.test.ts` | Full LocalExperienceStore API and restart persistence |
-| `tests/unit/api/routes.test.ts` | Feedback route writes through configured store and persists with default file-backed store |
+| `tests/unit/experience/ExperienceStore.test.ts` | Full LocalExperienceStore API, `getRecords()` filters, and restart persistence |
+| `tests/unit/api/routes.test.ts` | Experience read route, feedback route writes through configured store, and default file-backed persistence |
 
 ## Related Files
 
@@ -185,6 +213,7 @@ record.updatedAt = Date.now();
 
 ## Changelog
 
+- **2026-06-05** - Documented `getRecords()` read query API and learnable/recent filtering
 - **2026-06-05** - Documented persisted file format and feedback lookup by `contentItemId`
 
 - **2026-06-03** — Documented optional JSON persistence and API restart-survival behavior

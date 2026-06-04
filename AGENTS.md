@@ -22,6 +22,11 @@
 - Removed stale notes that claimed the feedback route schema was not exported
 - Clarified that feedback can be persisted and reloaded by `contentItemId`
 
+### 2026-06-05 - Experience read API
+- Added `GET /api/v1/experience` for reading recent or learnable local experience records
+- Added `LocalExperienceStore.getRecords()` with filters for `recent`, `learnable`, `tenantId`, `sourceType`, `outcome`, and `limit`
+- Feedback write behavior remains unchanged; persisted records can now be read back through the API
+
 ---
 
 ## Project Vision
@@ -83,7 +88,7 @@ src/
 ├── api/                    # REST API layer
 │   ├── index.ts            # Entry point (starts server)
 │   ├── server.ts           # Express app factory
-│   ├── routes.ts           # Route definitions (/process, /strategies, /experience/feedback)
+│   ├── routes.ts           # Route definitions (/process, /strategies, /experience, /experience/feedback)
 │   ├── middleware/auth.ts  # API key auth middleware
 │   └── validators/process.ts # Zod schemas for request validation
 ├── core/                   # Core pipeline
@@ -210,6 +215,7 @@ npm run lint    # tsc --noEmit
 4. Pipeline now merges stage outputs between DENOISE, SEMANTIC, and OUTPUT, so `filteredText` and `chunks` can reach output strategies.
 5. `/api/v1/experience/feedback` writes feedback to `ExperienceStore` by `contentItemId`.
 6. `LocalExperienceStore` supports optional JSON persistence; the default API store writes to `data/experience-store.json`, or `PRAE_EXPERIENCE_STORE_PATH` when set.
+7. `GET /api/v1/experience` reads recent or learnable experience records from the configured `ExperienceStore`.
 
 ### Remaining gaps
 

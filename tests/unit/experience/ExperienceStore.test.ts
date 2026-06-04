@@ -241,6 +241,56 @@ describe('LocalExperienceStore', () => {
     });
   });
 
+  describe('getRecords', () => {
+    it('returns recent records newest first with an optional limit', async () => {
+      const firstResult = createMockProcessingResult({
+        contentItem: createMockContentItem({ id: 'first-content' }),
+      });
+      const secondResult = createMockProcessingResult({
+        id: 'result-2',
+        contentItem: createMockContentItem({ id: 'second-content' }),
+      });
+
+      await store.record(firstResult);
+      await store.record(secondResult);
+
+      const recent = await store.getRecords({ limit: 1 });
+
+      expect(recent).toHaveLength(1);
+      expect(recent[0]?.contentItemId).toBe('second-content');
+    });
+
+    it('filters learnable records by outcome and source type', async () => {
+      const successResult = createMockProcessingResult({
+        contentItem: createMockContentItem({ id: 'success-content' }),
+      });
+      const failedResult = createMockProcessingResult({
+        id: 'result-2',
+        contentItem: createMockContentItem({
+          id: 'failed-content',
+          source: 'other://source',
+          meta: { sourceType: 'other' },
+        }),
+        outcome: 'FAILED',
+      });
+
+      await store.record(successResult);
+      await store.record(failedResult);
+      await store.addHumanFeedback('success-content', 'Good result');
+      await store.addHumanFeedback('failed-content', 'Needs review');
+
+      const learnable = await store.getRecords({
+        filter: 'learnable',
+        outcome: 'SUCCESS',
+        sourceType: 'test',
+      });
+
+      expect(learnable).toHaveLength(1);
+      expect(learnable[0]?.contentItemId).toBe('success-content');
+      expect(learnable[0]?.humanFeedback?.feedback).toBe('Good result');
+    });
+  });
+
   describe('getHistoricalContext', () => {
     it('returns latest confidence for a content item id', async () => {
       const result = createMockProcessingResult({

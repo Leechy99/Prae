@@ -1,8 +1,17 @@
 # Prae Project Overview / Prae 项目速览
 
-**Updated / 更新时间:** 2026-06-03
+**Updated / 更新时间:** 2026-06-05
 
 ## Recent Optimizations / 最近优化记录
+
+### 2026-06-05
+
+- EN: `GET /api/v1/experience` now reads local experience records from the configured `ExperienceStore`.
+  中文：`GET /api/v1/experience` 现在可从已配置的 `ExperienceStore` 读取本地经验记录。
+- EN: The read API supports `filter=recent` and `filter=learnable`, plus optional `limit`, `tenantId`, `sourceType`, and `outcome` filters.
+  中文：读取接口支持 `filter=recent` 与 `filter=learnable`，并支持可选的 `limit`、`tenantId`、`sourceType`、`outcome` 过滤。
+- EN: Feedback persistence behavior is unchanged; persisted feedback records can now be queried back through the API.
+  中文：反馈持久化行为保持不变；已持久化的反馈记录现在可以通过 API 查询。
 
 ### 2026-06-03
 
@@ -95,6 +104,8 @@ EN: Prae is currently implemented as a TypeScript + Node.js content-processing s
      中文：可记录处理结果、人类反馈和可学习记录。
    - EN: Processing results store `contentItemId`, and feedback can be written back by that ID.
      中文：处理结果会保存 `contentItemId`，反馈接口可按该 ID 写回记录。
+   - EN: Records can be read through `GET /api/v1/experience` as recent or learnable records.
+     中文：经验记录可以通过 `GET /api/v1/experience` 按最近记录或可学习记录读取。
    - EN: The default API store persists to `data/experience-store.json`; set `PRAE_EXPERIENCE_STORE_PATH` to choose another file.
      中文：默认 API 存储会持久化到 `data/experience-store.json`；可设置 `PRAE_EXPERIENCE_STORE_PATH` 指定其他文件。
 
@@ -144,6 +155,14 @@ Raw Content
   - EN: Lists currently registered strategies.
     中文：返回当前注册策略列表。
 
+- `GET /api/v1/experience`
+  - EN: Reads local experience records.
+    中文：读取本地经验记录。
+  - EN: Supports `filter=recent` for newest records and `filter=learnable` for records with feedback that have not been learned.
+    中文：支持 `filter=recent` 查询最新记录，支持 `filter=learnable` 查询已有反馈但尚未学习的记录。
+  - EN: Supports optional `limit`, `tenantId`, `sourceType`, and `outcome` query filters.
+    中文：支持可选的 `limit`、`tenantId`、`sourceType`、`outcome` 查询过滤。
+
 - `POST /api/v1/experience/feedback`
   - EN: Accepts feedback for a processed content item.
     中文：接收内容处理反馈。
@@ -184,6 +203,8 @@ EN: Prae has a working MVP foundation:
   中文：反馈 API 已与本地经验存储打通。
 - EN: Local experience feedback survives service restarts when the default API file-backed store is used.
   中文：使用默认 API 文件存储时，本地经验反馈可在服务重启后保留。
+- EN: Recent and learnable experience records can be read through the authenticated API.
+  中文：最近记录和可学习经验记录可通过带认证的 API 读取。
 - EN: Jest unit tests and Playwright E2E configuration are present.
   中文：已有 Jest 单元测试与 Playwright E2E 测试配置。
 
@@ -191,8 +212,8 @@ EN: Prae has a working MVP foundation:
 
 - EN: HTML is currently the main supported input. Documents, audio, and enterprise knowledge sources remain design-stage capabilities.
   中文：目前主要处理 HTML，其他文档、音频、企业知识库等输入仍处于设计愿景。
-- EN: Experience storage now supports local file persistence, but richer retrieval APIs and strategy-update learning are not implemented yet.
-  中文：经验存储已支持本地文件持久化，但更完整的检索 API 和策略更新学习机制尚未实现。
+- EN: Experience storage now supports local file persistence and basic read filters, but strategy-update learning is not implemented yet.
+  中文：经验存储已支持本地文件持久化和基础读取过滤，但策略更新学习机制尚未实现。
 - EN: API key handling is still development-oriented and needs stronger environment-based production configuration.
   中文：API key 仍是开发期配置形态，缺少完整环境变量配置。
 - EN: CI/CD is not yet configured.

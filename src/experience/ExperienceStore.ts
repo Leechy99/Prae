@@ -4,6 +4,16 @@ import { dirname } from 'path';
 import type { ProcessingResult } from '../types';
 import type { ExperienceRecord } from './ExperienceRecord';
 
+export type ExperienceRecordFilter = 'recent' | 'learnable';
+
+export interface ExperienceRecordQuery {
+  filter?: ExperienceRecordFilter;
+  tenantId?: string;
+  sourceType?: string;
+  outcome?: ProcessingResult['outcome'];
+  limit?: number;
+}
+
 export interface ExperienceStore {
   record(result: ProcessingResult, tenantId?: string): Promise<void>;
   getLatest(sourceType: string, tenantId?: string): Promise<ExperienceRecord | null>;
@@ -11,6 +21,7 @@ export interface ExperienceStore {
     outcome: ProcessingResult['outcome'],
     tenantId?: string
   ): Promise<ExperienceRecord[]>;
+  getRecords(query?: ExperienceRecordQuery): Promise<ExperienceRecord[]>;
   addHumanFeedback(
     recordId: string,
     feedback: string,
@@ -122,6 +133,37 @@ export class LocalExperienceStore implements ExperienceStore {
     return results;
   }
 
+  async getRecords(query: ExperienceRecordQuery = {}): Promise<ExperienceRecord[]> {
+    await this.ensureLoaded();
+
+    const tenantId = query.tenantId ?? 'default';
+    const results: Array<{ record: ExperienceRecord; order: number }> = [];
+    let order = 0;
+
+    for (const records of this.records.values()) {
+      for (const record of records) {
+        const isLearnable = Boolean(record.humanFeedback && !record.learning.isLearned);
+        const shouldInclude =
+          record.tenantId === tenantId &&
+          (!query.sourceType || record.input.sourceType === query.sourceType) &&
+          (!query.outcome || record.outcome === query.outcome) &&
+          (query.filter !== 'learnable' || isLearnable);
+
+        if (shouldInclude) {
+          results.push({ record, order });
+        }
+
+        order += 1;
+      }
+    }
+
+    const sorted = results
+      .sort((a, b) => b.record.createdAt - a.record.createdAt || b.order - a.order)
+      .map(({ record }) => record);
+
+    return query.limit === undefined ? sorted : sorted.slice(0, query.limit);
+  }
+
   async addHumanFeedback(
     recordId: string,
     feedback: string,
@@ -146,21 +188,7 @@ export class LocalExperienceStore implements ExperienceStore {
   }
 
   async getLearnableRecords(tenantId: string = 'default'): Promise<ExperienceRecord[]> {
-    await this.ensureLoaded();
-
-    const results: ExperienceRecord[] = [];
-    for (const [key, records] of this.records.entries()) {
-      const keyTenantId = key.split(':')[0];
-      if (tenantId !== keyTenantId) {
-        continue;
-      }
-      for (const record of records) {
-        if (record.humanFeedback && !record.learning.isLearned) {
-          results.push(record);
-        }
-      }
-    }
-    return results;
+    return this.getRecords({ filter: 'learnable', tenantId });
   }
 
   // Pipeline interface adapters (Pipeline.ts expects getHistoricalContext + recordProcessing)

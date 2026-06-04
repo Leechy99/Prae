@@ -11,8 +11,9 @@ import { RelevanceFilterStrategy } from '../strategies/semantic/RelevanceFilterS
 import { JSONSchemaStrategy } from '../strategies/output/JSONSchemaStrategy';
 import { MarkdownStrategy } from '../strategies/output/MarkdownStrategy';
 import { ExperienceStore, LocalExperienceStore } from '../experience/ExperienceStore';
+import type { ExperienceRecord } from '../experience/ExperienceRecord';
 import { apiKeyAuth } from './middleware/auth';
-import { validateRequest, processRequestSchema, feedbackRequestSchema } from './validators/process';
+import { validateRequest, processRequestSchema, feedbackRequestSchema, experienceQuerySchema } from './validators/process';
 import type { ContentItem, ContentHint } from '../types';
 
 export interface ApiConfig {
@@ -105,6 +106,49 @@ export function createRouter(config: ApiConfig = {}): Router {
     });
   });
 
+  // GET /experience - reads recent or learnable experience records
+  apiV1.get('/experience', async (req: Request, res: Response) => {
+    const parsed = experienceQuerySchema.safeParse(req.query);
+
+    if (!parsed.success) {
+      res.status(400).json({
+        error: 'Validation Error',
+        message: parsed.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', '),
+      });
+      return;
+    }
+
+    const { filter, tenantId, sourceType, outcome, limit } = parsed.data;
+
+    try {
+      const records = await experienceStore.getRecords({
+        filter,
+        tenantId,
+        sourceType,
+        outcome,
+        limit,
+      });
+
+      res.json({
+        success: true,
+        filter: {
+          mode: filter,
+          tenantId,
+          sourceType,
+          outcome,
+          limit,
+        },
+        count: records.length,
+        records: records.map(serializeExperienceRecord),
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: 'Experience Store Error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  });
+
   // POST /experience/feedback - records feedback
   apiV1.post('/experience/feedback', validateRequest(feedbackRequestSchema), async (req: Request, res: Response) => {
     const { contentItemId, rating, feedback } = req.body;
@@ -189,6 +233,20 @@ function parseContentItem(rawContent: Uint8Array, contentType: string | undefine
       contentType: contentType || hints.mimeType,
     },
     hints,
+  };
+}
+
+function serializeExperienceRecord(record: ExperienceRecord) {
+  return {
+    id: record.id,
+    contentItemId: record.contentItemId,
+    input: record.input,
+    processing: record.processing,
+    outcome: record.outcome,
+    humanFeedback: record.humanFeedback,
+    learning: record.learning,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
   };
 }
 

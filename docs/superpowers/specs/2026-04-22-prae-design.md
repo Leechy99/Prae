@@ -229,6 +229,20 @@ START → CLASSIFY_CONTENT → ROUTE_STRATEGIES → EXECUTE_STRATEGIES
 | GET | /api/v1/experience | 查询经验记录 |
 | POST | /api/v1/experience/feedback | 提交人工反馈 |
 
+### 5.1.1 当前 MVP 经验读取实现
+
+`GET /api/v1/experience` 已实现为本地经验存储读取接口，使用同一个 `ExperienceStore` 实例读取由 `/process` 和 `/experience/feedback` 写入的记录。
+
+支持的查询参数：
+
+| 参数 | 值 | 默认值 | 说明 |
+|------|----|--------|------|
+| `filter` | `recent`, `learnable` | `recent` | 查询最新记录或可学习记录 |
+| `limit` | `1..100` | `20` | 限制返回条数 |
+| `tenantId` | string | `default` | 租户过滤 |
+| `sourceType` | string | 无 | 输入来源类型过滤 |
+| `outcome` | `SUCCESS`, `RETRY_SUCCESS`, `CLOUD_ESCALATED`, `HUMAN_INTERVENTION`, `FAILED` | 无 | 处理结果过滤 |
+
 ### 5.2 认证方式
 - API Key: `X-API-Key: {key}`
 - OAuth 2.0 Bearer Token

@@ -52,8 +52,10 @@ export function apiKeyAuth(options?: ApiKeyAuthOptions): (req: Request, res: Res
 // src/api/validators/process.ts
 export const processRequestSchema: z.ZodSchema   // { content: string, contentType?: string }
 export const feedbackRequestSchema: z.ZodSchema  // { contentItemId: string, rating: 1-5, feedback?: string }
+export const experienceQuerySchema: z.ZodSchema  // { filter?: recent|learnable, limit?: 1-100, tenantId?, sourceType?, outcome? }
 export type ProcessRequest = z.infer<typeof processRequestSchema>
 export type FeedbackRequest = z.infer<typeof feedbackRequestSchema>
+export type ExperienceQuery = z.infer<typeof experienceQuerySchema>
 export function validateRequest(schema: z.ZodSchema): (req: Request, res: Response, next: NextFunction) => void
 ```
 
@@ -64,6 +66,7 @@ export function validateRequest(schema: z.ZodSchema): (req: Request, res: Respon
 | `GET` | `/health` | None | Returns `{ status: 'ok', timestamp }` |
 | `POST` | `/api/v1/process` | X-API-Key | Process base64-encoded content |
 | `GET` | `/api/v1/strategies` | X-API-Key | List registered strategies |
+| `GET` | `/api/v1/experience` | X-API-Key | Read recent or learnable experience records |
 | `POST` | `/api/v1/experience/feedback` | X-API-Key | Record feedback |
 
 ### POST /api/v1/process
@@ -89,6 +92,53 @@ export function validateRequest(schema: z.ZodSchema): (req: Request, res: Respon
 }
 ```
 
+### GET /api/v1/experience
+
+Reads local experience records from the configured `ExperienceStore`.
+
+**Query parameters:**
+
+| Parameter | Values | Default | Description |
+|-----------|--------|---------|-------------|
+| `filter` | `recent`, `learnable` | `recent` | `recent` returns newest records; `learnable` returns records with feedback that have not been learned |
+| `limit` | integer `1..100` | `20` | Maximum records returned |
+| `tenantId` | string | `default` in store layer | Tenant scope |
+| `sourceType` | string | none | Filter by recorded input source type |
+| `outcome` | `SUCCESS`, `RETRY_SUCCESS`, `CLOUD_ESCALATED`, `HUMAN_INTERVENTION`, `FAILED` | none | Filter by processing outcome |
+
+**Example:**
+
+```http
+GET /api/v1/experience?filter=learnable&limit=10
+X-API-Key: dev-api-key
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "filter": {
+    "mode": "learnable",
+    "limit": 10
+  },
+  "count": 1,
+  "records": [
+    {
+      "id": "default:HTMLInputSource:...",
+      "contentItemId": "...",
+      "input": { "sourceType": "HTMLInputSource", "contentType": "text/html" },
+      "processing": { "finalConfidence": 0.92 },
+      "outcome": "SUCCESS",
+      "humanFeedback": { "feedback": "Good result" },
+      "learning": { "isLearned": false },
+      "createdAt": 1710000000000,
+      "updatedAt": 1710000000000
+    }
+  ]
+}
+```
+
 ## Key Types
 
 ```typescript
@@ -108,6 +158,13 @@ export interface ApiKeyAuthOptions {
 // src/api/validators/process.ts
 type ProcessRequest = { content: string; contentType?: string }
 type FeedbackRequest = { contentItemId: string; rating: number; feedback?: string }
+type ExperienceQuery = {
+  filter: 'recent' | 'learnable';
+  limit: number;
+  tenantId?: string;
+  sourceType?: string;
+  outcome?: ProcessingResult['outcome'];
+}
 ```
 
 ## Dependencies
@@ -128,7 +185,7 @@ type FeedbackRequest = { contentItemId: string; rating: number; feedback?: strin
 | `RelevanceFilterStrategy` | Semantic strategy | `../strategies/semantic/RelevanceFilterStrategy` |
 | `JSONSchemaStrategy` | Output strategy | `../strategies/output/JSONSchemaStrategy` |
 | `MarkdownStrategy` | Output strategy | `../strategies/output/MarkdownStrategy` |
-| `ExperienceStore` / `LocalExperienceStore` | Feedback storage and default persistence | `../experience/ExperienceStore` |
+| `ExperienceStore` / `LocalExperienceStore` | Experience record reads, feedback storage, and default persistence | `../experience/ExperienceStore` |
 
 ## File Structure
 
@@ -153,7 +210,8 @@ graph LR
     C --> E["validators/process.ts\nvalidateRequest"]
     C --> F["POST /process\n-> Pipeline.process()"]
     C --> G["GET /strategies\npipeline.getRegisteredStrategies()"]
-    C --> H["POST /experience/feedback"]
+    C --> H["GET /experience\nExperienceStore.getRecords()"]
+    C --> I["POST /experience/feedback"]
 ```
 
 ## Important Implementation Details
@@ -188,6 +246,13 @@ graph LR
 4. The default router store persists records to `data/experience-store.json` outside test mode
 5. `PRAE_EXPERIENCE_STORE_PATH` can override the persistence file path
 
+### Experience Read Flow
+
+1. `/api/v1/experience` validates query parameters with `experienceQuerySchema`
+2. The route calls `ExperienceStore.getRecords()` on the same store used by processing and feedback
+3. `filter=recent` returns newest records first; `filter=learnable` returns feedback records that are not learned
+4. API responses omit `tenantId` while keeping record id, content item id, input, processing, outcome, feedback, learning, and timestamps
+
 ### Authentication Flow
 
 1. All `/api/v1/*` routes require `X-API-Key` header
@@ -205,7 +270,7 @@ graph LR
 
 | Test File | Scope |
 |-----------|-------|
-| `tests/unit/api/routes.test.ts` | All endpoints, auth middleware, validation, feedback persistence |
+| `tests/unit/api/routes.test.ts` | All endpoints, auth middleware, validation, experience reads, feedback persistence |
 | `tests/e2e/processing.spec.ts` | Full HTTP round-trip with Playwright |
 
 ## Related Files
@@ -219,6 +284,7 @@ graph LR
 
 ## Changelog
 
+- **2026-06-05** - Documented `GET /api/v1/experience` read endpoint and query filters
 - **2026-06-05** - Aligned API docs with persisted feedback flow and current `ApiConfig`
 
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, endpoint tables, and dependency matrix

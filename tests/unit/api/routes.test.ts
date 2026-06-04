@@ -103,6 +103,114 @@ describe('API Routes', () => {
     });
   });
 
+  describe('GET /api/v1/experience', () => {
+    it('returns 401 when X-API-Key header is missing', async () => {
+      const response = await request(app).get('/api/v1/experience');
+
+      expect(response.status).toBe(401);
+    });
+
+    it('returns recent experience records from the configured store', async () => {
+      const experienceStore = new LocalExperienceStore();
+      const configuredApp = express();
+      configuredApp.use(express.json());
+      configuredApp.use(createRouter({ experienceStore }));
+
+      const firstResponse = await request(configuredApp)
+        .post('/api/v1/process')
+        .set('X-API-Key', 'dev-api-key')
+        .send({
+          content: Buffer.from('<html><body>First experience record</body></html>').toString('base64'),
+          contentType: 'text/html',
+        });
+      const secondResponse = await request(configuredApp)
+        .post('/api/v1/process')
+        .set('X-API-Key', 'dev-api-key')
+        .send({
+          content: Buffer.from('<html><body>Second experience record</body></html>').toString('base64'),
+          contentType: 'text/html',
+        });
+
+      const response = await request(configuredApp)
+        .get('/api/v1/experience?filter=recent&limit=1')
+        .set('X-API-Key', 'dev-api-key');
+
+      expect(firstResponse.status).toBe(200);
+      expect(secondResponse.status).toBe(200);
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body).toMatchObject({
+        filter: {
+          mode: 'recent',
+          limit: 1,
+        },
+        count: 1,
+      });
+      expect(response.body.records).toHaveLength(1);
+      expect(response.body.records[0]).toHaveProperty('contentItemId', secondResponse.body.result.contentItemId);
+      expect(response.body.records[0]).toHaveProperty('outcome');
+      expect(response.body.records[0]).not.toHaveProperty('tenantId');
+    });
+
+    it('returns learnable experience records with feedback unchanged', async () => {
+      const experienceStore = new LocalExperienceStore();
+      const configuredApp = express();
+      configuredApp.use(express.json());
+      configuredApp.use(createRouter({ experienceStore }));
+
+      const processResponse = await request(configuredApp)
+        .post('/api/v1/process')
+        .set('X-API-Key', 'dev-api-key')
+        .send({
+          content: Buffer.from('<html><body>Learnable feedback content</body></html>').toString('base64'),
+          contentType: 'text/html',
+        });
+      const contentItemId = processResponse.body.result.contentItemId;
+
+      const feedbackResponse = await request(configuredApp)
+        .post('/api/v1/experience/feedback')
+        .set('X-API-Key', 'dev-api-key')
+        .send({ contentItemId, rating: 5, feedback: 'Keep this learning signal' });
+
+      const response = await request(configuredApp)
+        .get('/api/v1/experience?filter=learnable')
+        .set('X-API-Key', 'dev-api-key');
+
+      expect(processResponse.status).toBe(200);
+      expect(feedbackResponse.status).toBe(200);
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        success: true,
+        filter: {
+          mode: 'learnable',
+        },
+        count: 1,
+      });
+      expect(response.body.records[0]).toMatchObject({
+        contentItemId,
+        humanFeedback: {
+          feedback: 'Keep this learning signal',
+          correctedResult: {
+            rating: 5,
+            feedback: 'Keep this learning signal',
+          },
+        },
+        learning: {
+          isLearned: false,
+        },
+      });
+    });
+
+    it('returns 400 for unsupported filters', async () => {
+      const response = await request(app)
+        .get('/api/v1/experience?filter=everything')
+        .set('X-API-Key', 'dev-api-key');
+
+      expect(response.status).toBe(400);
+      expect(response.body).toHaveProperty('error', 'Validation Error');
+    });
+  });
+
   describe('POST /api/v1/experience/feedback', () => {
     it('returns 401 when X-API-Key header is missing', async () => {
       const response = await request(app)
@@ -148,6 +256,7 @@ describe('API Routes', () => {
         record: jest.fn().mockResolvedValue(undefined),
         getLatest: jest.fn().mockResolvedValue(null),
         getByOutcome: jest.fn().mockResolvedValue([]),
+        getRecords: jest.fn().mockResolvedValue([]),
         addHumanFeedback: jest.fn().mockResolvedValue(undefined),
         getLearnableRecords: jest.fn().mockResolvedValue([]),
         getHistoricalContext: jest.fn().mockResolvedValue(undefined),
