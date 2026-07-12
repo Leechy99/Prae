@@ -14,6 +14,15 @@ export interface ContentItem {
   hints: ContentHint;
 }
 
+export interface ContentChunk {
+  id: string;
+  index: number;
+  text: string;
+  startChar: number;
+  endChar: number;
+  tokenEstimate: number;
+}
+
 export interface StrategyExecution {
   id: string;
   strategyId: string;
