@@ -7,6 +7,9 @@ dist/
 # Isolated development worktrees
 .worktrees/
 
+# Agent execution scratch state
+.superpowers/
+
 # Runtime data
 data/
 
