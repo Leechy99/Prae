@@ -6,10 +6,10 @@ export interface PipelineMetrics {
 }
 
 export interface PipelineSemanticState {
-  readonly entities?: unknown[];
-  readonly mentions?: unknown[];
-  readonly namedEntities?: unknown[];
-  readonly structure?: Record<string, unknown>;
+  readonly entities?: ReadonlyArray<unknown>;
+  readonly mentions?: ReadonlyArray<unknown>;
+  readonly namedEntities?: ReadonlyArray<unknown>;
+  readonly structure?: Readonly<Record<string, unknown>>;
   readonly relevance?: number;
   readonly coherence?: number;
   readonly context?: string;
@@ -21,11 +21,11 @@ export interface PipelineState {
   readonly text: string;
   readonly cleanedText?: string;
   readonly filteredText?: string;
-  readonly chunks?: ContentChunk[];
+  readonly chunks?: ReadonlyArray<ContentChunk>;
   readonly totalChunks?: number;
   readonly metrics: PipelineMetrics;
   readonly semantic: PipelineSemanticState;
-  readonly strategiesApplied: string[];
+  readonly strategiesApplied: ReadonlyArray<string>;
   readonly confidence?: ConfidenceScore;
 }
 
@@ -46,10 +46,49 @@ function cloneContentItem(item: ContentItem): ContentItem {
   };
 }
 
+function isContentChunk(value: unknown): value is ContentChunk {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const chunk = value as Record<string, unknown>;
+  return typeof chunk.id === 'string'
+    && typeof chunk.index === 'number'
+    && typeof chunk.text === 'string'
+    && typeof chunk.startChar === 'number'
+    && typeof chunk.endChar === 'number'
+    && typeof chunk.tokenEstimate === 'number';
+}
+
 function readChunks(value: unknown): ContentChunk[] | undefined {
-  return Array.isArray(value)
-    ? value.map(chunk => ({ ...(chunk as ContentChunk) }))
+  return Array.isArray(value) && value.every(isContentChunk)
+    ? value.map(chunk => ({ ...chunk }))
     : undefined;
+}
+
+function cloneConfidence(value: unknown): ConfidenceScore | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const confidence = value as ConfidenceScore;
+  return {
+    ...confidence,
+    components: { ...confidence.components },
+    bonus: { ...confidence.bonus },
+  };
+}
+
+function cloneSemanticValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cloneSemanticValue);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, cloneSemanticValue(nestedValue)])
+    );
+  }
+  return value;
 }
 
 function readMetrics(source: Record<string, unknown>): PipelineMetrics {
@@ -75,11 +114,11 @@ function readSemantic(source: Record<string, unknown>): PipelineSemanticState {
 
   for (const name of arraySemanticNames) {
     if (Array.isArray(source[name])) {
-      semantic[name] = [...source[name]];
+      semantic[name] = source[name].map(cloneSemanticValue);
     }
   }
   if (source.structure && typeof source.structure === 'object' && !Array.isArray(source.structure)) {
-    semantic.structure = { ...(source.structure as Record<string, unknown>) };
+    semantic.structure = cloneSemanticValue(source.structure) as Record<string, unknown>;
   }
   for (const name of numberSemanticNames) {
     if (typeof source[name] === 'number') {
@@ -114,7 +153,7 @@ export function createPipelineState(item: ContentItem): PipelineState {
     metrics: readMetrics(meta),
     semantic: readSemantic(meta),
     strategiesApplied,
-    confidence: meta.confidence as ConfidenceScore | undefined,
+    confidence: cloneConfidence(meta.confidence),
   };
 }
 
@@ -133,8 +172,9 @@ export function mergeStrategyOutput(state: PipelineState, output: unknown): Pipe
       recognized = true;
     }
   }
-  if (Array.isArray(source.chunks)) {
-    next.chunks = readChunks(source.chunks);
+  const chunks = readChunks(source.chunks);
+  if (chunks !== undefined) {
+    next.chunks = chunks;
     recognized = true;
   }
   if (typeof source.totalChunks === 'number') {
@@ -188,11 +228,12 @@ export function mergeStrategyOutput(state: PipelineState, output: unknown): Pipe
 }
 
 export function projectContentItem(state: PipelineState): ContentItem {
+  const semantic = readSemantic(state.semantic as Record<string, unknown>);
   const meta: Record<string, unknown> = {
     ...state.contentItem.meta,
     textContent: state.text,
     ...state.metrics,
-    ...state.semantic,
+    ...semantic,
     strategiesApplied: [...state.strategiesApplied],
   };
 
@@ -201,7 +242,7 @@ export function projectContentItem(state: PipelineState): ContentItem {
   if (state.filteredText !== undefined) meta.filteredText = state.filteredText;
   if (state.chunks !== undefined) meta.chunks = state.chunks.map(chunk => ({ ...chunk }));
   if (state.totalChunks !== undefined) meta.totalChunks = state.totalChunks;
-  if (state.confidence !== undefined) meta.confidence = state.confidence;
+  if (state.confidence !== undefined) meta.confidence = cloneConfidence(state.confidence);
 
   return {
     ...state.contentItem,
