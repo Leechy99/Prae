@@ -15,8 +15,9 @@ test.describe('Processing API', () => {
         <body>
           <nav class="nav">Navigation content</nav>
           <main>
-            <h1>Main Content</h1>
+            <h1>Multilingual Main Content</h1>
             <p>This is the main content of the page.</p>
+            <p>这是用于验证多语言语义提取的主要内容，应该被正确保留并分块。</p>
           </main>
           <footer>Footer info</footer>
         </body>
@@ -43,6 +44,12 @@ test.describe('Processing API', () => {
     expect(body.result).toBeDefined();
     expect(body.result.outcome).toBeDefined();
     expect(body.result.strategiesUsed).toBeDefined();
+    expect(body.result.strategiesUsed.map((s: { strategyId: string }) => s.strategyId))
+      .toEqual(expect.arrayContaining(['chunking', 'relevance-filter']));
+
+    const outputs = body.result.fusedOutput.data;
+    expect(outputs[0].metadata.confidence).toBe(body.result.confidence.overall);
+    expect(outputs[1].metadata.confidence).toBe(body.result.confidence.overall);
   });
 
   test('POST /api/v1/process - rejects requests without API key', async ({ request }) => {

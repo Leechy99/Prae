@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/api/index.js",
     "dev": "ts-node src/api/index.ts",
-    "test": "jest",
+    "test": "jest --coverage",
+    "test:unit": "jest",
     "test:e2e": "playwright test",
     "lint": "tsc --noEmit"
   },
