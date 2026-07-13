@@ -1,11 +1,19 @@
 import { defineConfig } from '@playwright/test';
+import { getRuntimeConfig } from './src/api/config';
+
+const runtimeConfig = getRuntimeConfig({
+  ...process.env,
+  API_KEY: 'test-api-key',
+  NODE_ENV: 'test',
+});
+const baseURL = `http://localhost:${runtimeConfig.port}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30000,
   webServer: {
     command: 'node -r ts-node/register src/api/index.ts',
-    url: 'http://localhost:3000/health',
+    url: `${baseURL}/health`,
     reuseExistingServer: false,
     timeout: 30000,
     gracefulShutdown: {
@@ -13,12 +21,13 @@ export default defineConfig({
       timeout: 5000,
     },
     env: {
-      API_KEY: 'test-api-key',
-      PORT: '3000',
+      API_KEY: runtimeConfig.apiKey,
+      PORT: String(runtimeConfig.port),
+      NODE_ENV: runtimeConfig.env,
     },
   },
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL,
     headless: true,
   },
 });

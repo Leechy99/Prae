@@ -4,6 +4,15 @@
 
 ## Recent Optimizations / 最近优化记录
 
+### 2026-07-14
+
+- EN: DENOISE and SEMANTIC transforms now execute sequentially against an immutable canonical pipeline state, and confidence is finalized before output rendering.
+  中文：DENOISE 与 SEMANTIC 转换现在基于不可变的规范流水线状态顺序执行，并在输出渲染前完成最终置信度计算。
+- EN: Retries require an explicit policy, meaningful short multilingual content is preserved, and feedback for unknown records returns HTTP 404.
+  中文：重试现在需要显式策略；有意义的多语言短文本会被保留；未知经验记录的反馈请求返回 HTTP 404。
+- EN: Server startup exposes an idempotent asynchronous close handle, and Playwright uses shared runtime parsing with an isolated test API key and graceful shutdown.
+  中文：服务启动现在提供幂等的异步关闭句柄；Playwright 使用共享运行时解析、隔离的测试 API Key 和优雅关闭流程。
+
 ### 2026-06-05
 
 - EN: `GET /api/v1/experience` now reads local experience records from the configured `ExperienceStore`.
@@ -21,6 +30,10 @@
   中文：默认 API 反馈流程会把本地经验记录持久化到 `data/experience-store.json`；部署时可通过 `PRAE_EXPERIENCE_STORE_PATH` 覆盖路径。
 - EN: Restart persistence is covered by unit tests for both `LocalExperienceStore` and `/api/v1/experience/feedback`.
   中文：`LocalExperienceStore` 与 `/api/v1/experience/feedback` 都已补充重启持久化单元测试。
+- EN: API runtime configuration is centralized in `src/api/config.ts`; the server entrypoint, auth middleware, and Playwright setup now share the same port/API key parsing.
+  中文：API 运行时配置已集中到 `src/api/config.ts`；服务入口、鉴权中间件和 Playwright 设置现在复用同一套端口/API Key 解析逻辑。
+- EN: `.env.example` documents local defaults but is not loaded automatically; environment overrides must be set in the shell before commands run. Production fails fast if `API_KEY` or `PORT` is missing or invalid.
+  中文：`.env.example` 仅记录本地默认配置，不会被自动加载；如需覆盖配置，必须先在当前终端设置环境变量再运行命令。生产环境缺少或错误配置 `API_KEY`、`PORT` 时会快速失败。
 
 ### 2026-06-01
 
@@ -189,6 +202,27 @@ Raw Content
 - Jest for unit tests / Jest 单元测试
 - Playwright for E2E tests / Playwright E2E 测试
 
+## Runtime Configuration / 运行时配置
+
+- EN: `src/api/config.ts` is the single source for API runtime settings.
+  中文：`src/api/config.ts` 是 API 运行时设置的统一来源。
+- EN: Local defaults are `NODE_ENV=development`, `PORT=3000`, and `API_KEY=dev-api-key`; `.env.example` documents these values but is not loaded automatically.
+  中文：本地默认值为 `NODE_ENV=development`、`PORT=3000`、`API_KEY=dev-api-key`；`.env.example` 仅记录这些配置，不会被自动加载。
+- EN: Set environment variables in the current shell before starting the service. For example, in PowerShell:
+  中文：启动服务前请在当前终端设置环境变量。例如在 PowerShell 中：
+
+```powershell
+$env:NODE_ENV = 'production'
+$env:PORT = '3000'
+$env:API_KEY = 'replace-with-a-secret'
+npm start
+```
+
+- EN: Production requires explicit `API_KEY` and `PORT`, and invalid ports are rejected at startup.
+  中文：生产环境必须显式设置 `API_KEY` 和 `PORT`，非法端口会在启动时被拒绝。
+- EN: Playwright uses the same config parser with test defaults, so E2E setup stays aligned with the server.
+  中文：Playwright 使用同一个配置解析器并注入测试默认值，因此 E2E 设置与服务端保持一致。
+
 ## Current Status / 当前状态
 
 EN: Prae has a working MVP foundation:
@@ -207,6 +241,8 @@ EN: Prae has a working MVP foundation:
   中文：已有置信度评分和重试/升级结果判断。
 - EN: Express API routes and test configuration are available.
   中文：已有 Express API 层和测试配置。
+- EN: API port and API key configuration are centralized, with production fail-fast validation.
+  中文：API 端口和 API Key 配置已集中管理，并具备生产环境快速失败校验。
 - EN: The feedback API is connected to the local experience store.
   中文：反馈 API 已与本地经验存储打通。
 - EN: Local experience feedback survives service restarts when the default API file-backed store is used.
@@ -226,8 +262,6 @@ EN: Prae has a working MVP foundation:
   中文：目前主要处理 HTML，其他文档、音频、企业知识库等输入仍处于设计愿景。
 - EN: Experience storage now supports local file persistence and basic read filters, but strategy-update learning is not implemented yet.
   中文：经验存储已支持本地文件持久化和基础读取过滤，但策略更新学习机制尚未实现。
-- EN: API key handling is still development-oriented and needs stronger environment-based production configuration.
-  中文：API key 仍是开发期配置形态，缺少完整环境变量配置。
 - EN: CI/CD is not yet configured.
   中文：CI/CD 工作流尚未建立。
 

@@ -7,26 +7,6 @@
 
 ## Changelog
 
-### 2026-04-23 — Initial scan
-- Root CLAUDE.md and module CLAUDE.md files generated
-- Full project inventory completed (Phase A/B/C)
-- Coverage report: 21 source files, 26 test files, 80% coverage threshold enforced
-
-### 2026-06-03 — Experience persistence
-- `LocalExperienceStore` gained optional JSON file persistence
-- Default API feedback storage now survives server restarts via `data/experience-store.json`
-- `PRAE_EXPERIENCE_STORE_PATH` can override the runtime persistence file
-
-### 2026-06-05 - Documentation alignment
-- API, Core, and Experience module docs now describe the persisted feedback loop
-- Removed stale notes that claimed the feedback route schema was not exported
-- Clarified that feedback can be persisted and reloaded by `contentItemId`
-
-### 2026-06-05 - Experience read API
-- Added `GET /api/v1/experience` for reading recent or learnable local experience records
-- Added `LocalExperienceStore.getRecords()` with filters for `recent`, `learnable`, `tenantId`, `sourceType`, `outcome`, and `limit`
-- Feedback write behavior remains unchanged; persisted records can now be read back through the API
-
 ### 2026-07-14 - Pipeline correctness alignment
 - DENOISE and SEMANTIC transforms run sequentially, with each successful transform projected into the next strategy input
 - Confidence is calculated from the canonical transformed state before JSON/Markdown rendering
@@ -34,6 +14,31 @@
 - Short multilingual text is retained by semantic filtering and sentence splitting supports common CJK punctuation
 - Feedback by `contentItemId` targets the newest terminal attempt and returns a boolean; the API maps `false` to 404
 - `startServer()` returns a `StartedServer` handle with an idempotent asynchronous `close()` contract
+
+### 2026-06-05 - Experience read API
+- Added `GET /api/v1/experience` for reading recent or learnable local experience records
+- Added `LocalExperienceStore.getRecords()` with filters for `recent`, `learnable`, `tenantId`, `sourceType`, `outcome`, and `limit`
+- Feedback write behavior remains unchanged; persisted records can now be read back through the API
+
+### 2026-06-05 - Documentation alignment
+- API, Core, and Experience module docs now describe the persisted feedback loop
+- Removed stale notes that claimed the feedback route schema was not exported
+- Clarified that feedback can be persisted and reloaded by `contentItemId`
+
+### 2026-06-03 — Runtime configuration
+- API port and API key now come from shared `src/api/config.ts`
+- `.env.example` is a reference file; set environment variables in the shell before running commands when overriding defaults
+- Production startup fails fast when `API_KEY` or `PORT` is missing
+
+### 2026-06-03 — Experience persistence
+- `LocalExperienceStore` gained optional JSON file persistence
+- Default API feedback storage now survives server restarts via `data/experience-store.json`
+- `PRAE_EXPERIENCE_STORE_PATH` can override the runtime persistence file
+
+### 2026-04-23 — Initial scan
+- Root CLAUDE.md and module CLAUDE.md files generated
+- Full project inventory completed (Phase A/B/C)
+- Coverage report: 21 source files, 26 test files, 80% coverage threshold enforced
 
 ---
 
@@ -95,6 +100,7 @@ graph TD
 src/
 ├── api/                    # REST API layer
 │   ├── index.ts            # Entry point (starts server)
+│   ├── config.ts           # Shared runtime config (port, API key, env)
 │   ├── server.ts           # Express app factory
 │   ├── routes.ts           # Route definitions (/process, /strategies, /experience, /experience/feedback)
 │   ├── middleware/auth.ts  # API key auth middleware
@@ -160,6 +166,15 @@ npm run build   # tsc → dist/
 npm start       # node dist/api/index.js (default port 3000)
 ```
 
+Runtime configuration is centralized in `src/api/config.ts`. In local development, omitted values default to `NODE_ENV=development`, `PORT=3000`, and `API_KEY=dev-api-key`. `.env.example` is reference documentation only and is not loaded automatically; set environment variables in the current shell before running commands. In production, `API_KEY` and `PORT` must be set or startup fails immediately.
+
+```powershell
+$env:NODE_ENV = 'production'
+$env:PORT = '3000'
+$env:API_KEY = 'replace-with-a-secret'
+npm start
+```
+
 ### Test
 ```bash
 npm test              # Jest unit tests + default 80% global coverage gate
@@ -179,10 +194,10 @@ npm run lint    # tsc --noEmit
 
 - **Framework:** Jest (unit) + Playwright (E2E)
 - **Coverage threshold:** 80% (branches, functions, lines, statements)
-- **Unit tests:** 12 Jest test files covering all modules
+- **Unit tests:** 13 Jest test files covering all modules
 - **E2E tests:** 3 Playwright cases covering processing, auth, and strategy listing
 - **Test config:** `jest.config.js` maps `src/` and `tests/` roots with `ts-jest` preset
-- **E2E config:** `playwright.config.ts` targets `http://localhost:3000`
+- **E2E config:** `playwright.config.ts` reads port and API key through `src/api/config.ts`, defaulting to `http://localhost:3000` for tests
 
 ---
 
@@ -228,10 +243,10 @@ npm run lint    # tsc --noEmit
 7. `GET /api/v1/experience` reads recent or learnable experience records from the configured `ExperienceStore`.
 8. Low-confidence retries are opt-in through `RetryPolicy`; `maxRetries` limits added attempts rather than enabling retries itself.
 9. Short multilingual semantic content is supported, including common CJK sentence punctuation.
+10. Runtime API configuration is centralized in `src/api/config.ts`; production requires explicit `API_KEY` and `PORT`.
 
 ### Remaining gaps
 
 1. **API `index.ts` entry** — `src/api/index.ts` is the server entry, not `src/api/server.ts` as the MVP plan intended.
-2. **No `.env` / env-based config** — API key still falls back to `dev-api-key` in `auth.ts`; production should require explicit configuration.
-3. **No CI/CD pipeline** — `.github/workflows/` is not present.
-4. **Input coverage** — currently focused on HTML; document, audio, and enterprise knowledge sources remain design-stage capabilities.
+2. **No CI/CD pipeline** — `.github/workflows/` is not present.
+3. **Input coverage** — currently focused on HTML; document, audio, and enterprise knowledge sources remain design-stage capabilities.

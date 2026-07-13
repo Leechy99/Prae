@@ -1,8 +1,9 @@
 import { startServer } from './server';
+import { getRuntimeConfig } from './config';
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+const config = getRuntimeConfig();
 
-startServer(PORT)
+startServer(config.port)
   .then((started) => {
     const shutdown = async (): Promise<void> => {
       await started.close();

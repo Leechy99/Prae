@@ -11,8 +11,31 @@ Exposes the Prae pipeline via Express.js REST API. Handles HTTP request parsing,
 ```typescript
 // src/api/index.ts
 import { startServer } from './server';
-const PORT = parseInt(process.env.PORT ?? '3000');
-startServer(PORT).catch(err => { console.error('Failed to start server:', err); process.exit(1); });
+import { getRuntimeConfig } from './config';
+const config = getRuntimeConfig();
+startServer(config.port)
+  .then(started => {
+    const shutdown = async (): Promise<void> => {
+      await started.close();
+      process.exit(0);
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
+  })
+  .catch(err => { console.error('Failed to start server:', err); process.exit(1); });
+```
+
+### Runtime Configuration
+
+```typescript
+// src/api/config.ts
+export interface RuntimeConfig {
+  apiKey: string;
+  env: string;
+  isProduction: boolean;
+  port: number;
+}
+export function getRuntimeConfig(env?: RuntimeEnv): RuntimeConfig
 ```
 
 ### App Factory & Server
@@ -42,7 +65,7 @@ export function createRouter(config?: ApiConfig): Router
 // src/api/middleware/auth.ts
 export interface ApiKeyAuthOptions {
   headerName?: string;  // default: 'X-API-Key'
-  apiKey?: string;      // default: process.env.API_KEY || 'dev-api-key'
+  apiKey?: string;      // default: getRuntimeConfig().apiKey
 }
 export function apiKeyAuth(options?: ApiKeyAuthOptions): (req: Request, res: Response, next: NextFunction) => void
 ```
@@ -176,6 +199,7 @@ type ExperienceQuery = {
 | `zod` | Request validation schemas | package.json |
 | `@types/express` | TypeScript types | package.json |
 | `Pipeline` | Core orchestrator | `../core/Pipeline` |
+| `getRuntimeConfig` | Shared runtime config | `./config` |
 | `Strategy` | Strategy interface | `../strategies/base/Strategy` |
 | `StrategyRegistry` | Strategy registry | `../strategies/base/StrategyRegistry` |
 | `InputRegistry` | Input source registry | `../input/InputRegistry` |
@@ -192,6 +216,7 @@ type ExperienceQuery = {
 
 ```
 src/api/
+├── config.ts             # getRuntimeConfig(), production fail-fast validation
 ├── index.ts              # Server entry point
 ├── server.ts             # createApp(), startServer()
 ├── routes.ts             # createRouter(), route handlers, createDefaultPipeline()
@@ -205,9 +230,11 @@ src/api/
 
 ```mermaid
 graph LR
-    A["index.ts\nserver entry"] --> B["server.ts\ncreateApp"]
+    A["index.ts\nserver entry"] --> Z["config.ts\ngetRuntimeConfig"]
+    A --> B["server.ts\ncreateApp"]
     B --> C["routes.ts\ncreateRouter"]
     C --> D["middleware/auth.ts\napiKeyAuth"]
+    D --> Z
     C --> E["validators/process.ts\nvalidateRequest"]
     C --> F["POST /process\n-> Pipeline.process()"]
     C --> G["GET /strategies\npipeline.getRegisteredStrategies()"]
@@ -262,20 +289,28 @@ graph LR
 ### Authentication Flow
 
 1. All `/api/v1/*` routes require `X-API-Key` header
-2. Key validated against `process.env.API_KEY` or fallback `'dev-api-key'`
+2. Key validated against `getRuntimeConfig().apiKey`, unless `apiKeyAuth({ apiKey })` overrides it
 3. Missing header returns `401 Unauthorized`
 4. Invalid key returns `403 Forbidden`
 
+### Runtime Configuration Flow
+
+1. `getRuntimeConfig()` reads `NODE_ENV`, `PORT`, and `API_KEY`
+2. Local development defaults to `NODE_ENV=development`, `PORT=3000`, and `API_KEY=dev-api-key`
+3. Playwright uses the same parser and supplies test defaults (`NODE_ENV=test`, `API_KEY=test-api-key`)
+4. Production requires explicit `API_KEY` and `PORT`; missing or invalid values throw during startup
+
 ### Known Issues
 
-- API key defaults to hardcoded `'dev-api-key'` — no `.env` validation at startup
 - No rate limiting on endpoints
-- Request body size limit: 10mb (Express default)
+- Request body size limit: 10mb
 
 ## Testing
 
 | Test File | Scope |
 |-----------|-------|
+| `tests/unit/api/config.test.ts` | Runtime config defaults, env overrides, production fail-fast, port validation |
+| `tests/unit/api/server.test.ts` | Listening state and idempotent/concurrent shutdown behavior |
 | `tests/unit/api/routes.test.ts` | All endpoints, auth middleware, validation, experience reads, feedback persistence |
 | `tests/e2e/processing.spec.ts` | Full HTTP round-trip with Playwright |
 
@@ -283,6 +318,7 @@ graph LR
 
 | Path | Purpose |
 |------|---------|
+| `./config.ts` | Shared API runtime configuration |
 | `../core/Pipeline.ts` | Pipeline orchestrator |
 | `../input/InputRegistry.ts` | MIME detection |
 | `../strategies/base/Strategy.ts` | Strategy interface |
@@ -293,6 +329,6 @@ graph LR
 - **2026-07-14** - Documented `StartedServer.close()` and boolean feedback/404 behavior
 - **2026-06-05** - Documented `GET /api/v1/experience` read endpoint and query filters
 - **2026-06-05** - Aligned API docs with persisted feedback flow and current `ApiConfig`
-
+- **2026-06-03** — Documented shared runtime config, production fail-fast behavior, and config tests
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, endpoint tables, and dependency matrix
 - **2026-04-23** — Updated to new format with Mermaid diagram, complete API signatures, dependency table
