@@ -41,6 +41,94 @@ describe('Pipeline', () => {
   });
 
   describe('process() with HTML content', () => {
+    it('passes each denoise transform output to the next denoise strategy', async () => {
+      const receivedText: string[] = [];
+      const first = createMockStrategy('denoise-first', StrategyType.DENOISE, true, {
+        cleanedText: 'first transform',
+      });
+      const second: Strategy = {
+        ...createMockStrategy('denoise-second', StrategyType.DENOISE),
+        config: { enabled: true, priority: 2, params: {} },
+        execute: async item => {
+          receivedText.push(String(item.meta.textContent));
+          return {
+            id: 'actual-second-execution',
+            strategyId: 'denoise-second',
+            startedAt: 101,
+            completedAt: 202,
+            success: true,
+            output: { cleanedText: 'second transform' },
+          };
+        },
+      };
+
+      pipeline.registerStrategy(first);
+      pipeline.registerStrategy(second);
+
+      const result = await pipeline.process(createContentItem());
+
+      expect(receivedText).toEqual(['first transform']);
+      expect(result.strategiesUsed[1]).toMatchObject({
+        id: 'actual-second-execution',
+        startedAt: 101,
+        completedAt: 202,
+      });
+    });
+
+    it('passes filtered canonical text to the following semantic strategy', async () => {
+      const receivedText: string[] = [];
+      const filter = createMockStrategy('semantic-filter', StrategyType.SEMANTIC, true, {
+        filteredText: 'filtered canonical text',
+      });
+      const chunker: Strategy = {
+        ...createMockStrategy('semantic-chunker', StrategyType.SEMANTIC),
+        config: { enabled: true, priority: 2, params: {} },
+        execute: async item => {
+          receivedText.push(String(item.meta.textContent));
+          return {
+            id: 'exec-semantic-chunker',
+            strategyId: 'semantic-chunker',
+            startedAt: 1,
+            completedAt: 2,
+            success: true,
+            output: { totalChunks: 0, chunks: [] },
+          };
+        },
+      };
+
+      pipeline.registerStrategy(filter);
+      pipeline.registerStrategy(chunker);
+
+      await pipeline.process(createContentItem());
+
+      expect(receivedText).toEqual(['filtered canonical text']);
+    });
+
+    it('does not merge unrecognized successful transform output into canonical state', async () => {
+      pipeline.registerStrategy(createMockStrategy('diagnostic-only', StrategyType.DENOISE, true, {
+        arbitraryDiagnostic: 'must not become pipeline state',
+      }));
+      const output: Strategy = {
+        ...createMockStrategy('state-observer', StrategyType.OUTPUT),
+        execute: async item => ({
+          id: 'exec-state-observer',
+          strategyId: 'state-observer',
+          startedAt: 1,
+          completedAt: 2,
+          success: true,
+          output: { observed: item.meta.arbitraryDiagnostic },
+        }),
+      };
+      pipeline.registerStrategy(output);
+
+      const result = await pipeline.process(createContentItem());
+
+      expect(result.strategiesUsed[0].output).toEqual({
+        arbitraryDiagnostic: 'must not become pipeline state',
+      });
+      expect(result.fusedOutput).toEqual({ observed: undefined });
+    });
+
     it('executes denoise strategies and updates contentItem.meta with cleanedText', async () => {
       const htmlContent = '<html><body><nav>Nav</nav><p>Paragraph content here</p></body></html>';
       const contentItem = createContentItem({ textContent: htmlContent });
@@ -99,7 +187,14 @@ describe('Pipeline', () => {
 
       pipeline.registerStrategy(createMockStrategy('semantic-1', StrategyType.SEMANTIC, true, {
         filteredText: 'Filtered semantic text',
-        chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+        chunks: [{
+          id: 'chunk-1',
+          index: 0,
+          text: 'Filtered semantic text',
+          startChar: 0,
+          endChar: 22,
+          tokenEstimate: 6,
+        }],
         totalChunks: 1,
       }));
 
@@ -131,7 +226,14 @@ describe('Pipeline', () => {
       expect(contentItem.meta.textContent).toBe('Filtered semantic text');
       expect(result.fusedOutput).toEqual({
         text: 'Filtered semantic text',
-        chunks: [{ id: 'chunk-1', index: 0, text: 'Filtered semantic text', tokenEstimate: 6 }],
+        chunks: [{
+          id: 'chunk-1',
+          index: 0,
+          text: 'Filtered semantic text',
+          startChar: 0,
+          endChar: 22,
+          tokenEstimate: 6,
+        }],
       });
     });
 
@@ -173,6 +275,44 @@ describe('Pipeline', () => {
           },
         ],
       });
+    });
+
+    it('renders every final output with the scored transform confidence', async () => {
+      const contentItem = createContentItem({
+        textContent: 'Substantial canonical content. '.repeat(30),
+      });
+      pipeline.registerStrategy(createMockStrategy('denoise-1', StrategyType.DENOISE, true, {
+        cleanedText: 'Substantial canonical content. '.repeat(30),
+      }));
+      pipeline.registerStrategy(createMockStrategy('semantic-1', StrategyType.SEMANTIC, true, {
+        filteredText: 'Substantial canonical content. '.repeat(30),
+        entities: ['Prae'],
+        coherence: 0.9,
+      }));
+
+      const render = (id: string): Strategy => ({
+        ...createMockStrategy(id, StrategyType.OUTPUT),
+        execute: async item => ({
+          id: `exec-${id}`,
+          strategyId: id,
+          startedAt: 1,
+          completedAt: 2,
+          success: true,
+          output: { metadata: { confidence: item.meta.confidence } },
+        }),
+      });
+      pipeline.registerStrategy(render('renderer-one'));
+      pipeline.registerStrategy(render('renderer-two'));
+
+      const result = await pipeline.process(contentItem);
+      const rendered = result.fusedOutput as {
+        type: 'fused';
+        data: Array<{ metadata: { confidence: number } }>;
+      };
+
+      expect(rendered.data.every(output =>
+        output.metadata.confidence === result.confidence.overall
+      )).toBe(true);
     });
   });
 

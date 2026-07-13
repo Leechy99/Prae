@@ -39,7 +39,9 @@ export class NavigationFilterStrategy implements Strategy {
 
     try {
       const decoder = new TextDecoder();
-      const html = decoder.decode(item.raw);
+      const html = typeof item.meta.document === 'string'
+        ? item.meta.document
+        : decoder.decode(item.raw);
       const dom = new JSDOM(html);
       const document = dom.window.document;
 
@@ -61,7 +63,12 @@ export class NavigationFilterStrategy implements Strategy {
         startedAt,
         completedAt: Date.now(),
         success: true,
-        output: { navRemoved, textLength }
+        output: {
+          document: document.documentElement.outerHTML,
+          cleanedText,
+          navRemoved,
+          textLength,
+        }
       };
     } catch (error) {
       return {

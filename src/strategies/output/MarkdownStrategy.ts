@@ -35,7 +35,9 @@ export class MarkdownStrategy implements Strategy {
       const rawTextContent = item.meta?.textContent;
       const text = String(rawFiltered || rawCleaned || rawTextContent || '');
       const title = item.meta?.title as string | undefined;
-      const confidence = (item.meta?.confidence as number) || 0.8;
+      const confidence = typeof item.meta?.confidence === 'number'
+        ? item.meta.confidence
+        : 0;
 
       // Split text into paragraphs and join with double newlines
       const paragraphs = text.split(/\n+/g).filter(p => p.trim().length > 0);

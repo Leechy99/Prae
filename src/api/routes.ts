@@ -279,10 +279,3 @@ function createDefaultPipeline(experienceStore?: ExperienceStore): Pipeline {
 
   return pipeline;
 }
-
-// Extend Pipeline interface to expose strategies
-declare module '../core/Pipeline' {
-  interface Pipeline {
-    getRegisteredStrategies(): Strategy[];
-  }
-}

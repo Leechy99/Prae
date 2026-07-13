@@ -108,7 +108,7 @@ describe('Output Strategies', () => {
       expect(output.chunks).toEqual(chunks);
     });
 
-    it('should use default confidence when not provided', async () => {
+    it('should use zero confidence when not provided', async () => {
       const item = createContentItem({
         cleanedText: 'Test content',
       });
@@ -117,7 +117,7 @@ describe('Output Strategies', () => {
 
       expect(result.success).toBe(true);
       const output = result.output as { metadata: { confidence: number } };
-      expect(output.metadata.confidence).toBe(0.8);
+      expect(output.metadata.confidence).toBe(0);
     });
 
     it('should use default strategiesApplied when not provided', async () => {
@@ -267,7 +267,7 @@ describe('Output Strategies', () => {
       expect(output.metadata.confidence).toBe(0.85);
     });
 
-    it('should use default confidence when not provided', async () => {
+    it('should use zero confidence when not provided', async () => {
       const item = createContentItem({
         cleanedText: 'Test content',
       });
@@ -276,7 +276,7 @@ describe('Output Strategies', () => {
 
       expect(result.success).toBe(true);
       const output = result.output as { metadata: { confidence: number } };
-      expect(output.metadata.confidence).toBe(0.8);
+      expect(output.metadata.confidence).toBe(0);
     });
 
     it('should filter out empty paragraphs', async () => {

@@ -39,7 +39,9 @@ export class HTMLCleanStrategy implements Strategy {
 
     try {
       const decoder = new TextDecoder();
-      const html = decoder.decode(item.raw);
+      const html = typeof item.meta.document === 'string'
+        ? String(item.meta.document)
+        : decoder.decode(item.raw);
       const dom = new JSDOM(html);
       const document = dom.window.document;
 
@@ -88,7 +90,11 @@ export class HTMLCleanStrategy implements Strategy {
         startedAt,
         completedAt: Date.now(),
         success: true,
-        output: { cleanedText, removedTags }
+        output: {
+          document: document.documentElement.outerHTML,
+          cleanedText,
+          removedTags,
+        }
       };
     } catch (error) {
       return {

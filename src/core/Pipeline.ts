@@ -1,8 +1,13 @@
 import type { ContentItem, ProcessingResult, StrategyExecution, ConfidenceScore } from '../types';
 import { Strategy, StrategyType } from '../strategies/base/Strategy';
 import { StrategyRegistry } from '../strategies/base/StrategyRegistry';
-import { StrategyExecutor } from '../strategies/base/StrategyExecutor';
 import { ConfidenceScorer } from './ConfidenceScorer';
+import {
+  createPipelineState,
+  mergeStrategyOutput,
+  projectContentItem,
+  type PipelineState,
+} from './PipelineState';
 import type { ExperienceStore } from '../experience/ExperienceStore';
 
 export interface PipelineConfig {
@@ -17,7 +22,6 @@ interface PipelineExecutedStrategies {
 
 export class Pipeline {
   private registry: StrategyRegistry;
-  private executor: StrategyExecutor;
   private scorer: ConfidenceScorer;
   private experienceStore?: ExperienceStore;
   private maxRetries: number;
@@ -25,7 +29,6 @@ export class Pipeline {
 
   constructor(config: PipelineConfig = {}) {
     this.registry = new StrategyRegistry();
-    this.executor = new StrategyExecutor();
     this.scorer = new ConfidenceScorer();
     this.maxRetries = config.maxRetries ?? 3;
     this.enableCloudEscalation = config.enableCloudEscalation ?? false;
@@ -41,7 +44,6 @@ export class Pipeline {
 
   registerStrategy(strategy: Strategy): void {
     this.registry.register(strategy);
-    this.executor.register(strategy);
   }
 
   async process(contentItem: ContentItem): Promise<ProcessingResult> {
@@ -92,41 +94,42 @@ export class Pipeline {
     retryCount: number,
     startTime: number
   ): Promise<ProcessingResult> {
-    const allExecutions: StrategyExecution[] = [];
-    let fusedOutput: unknown;
+    let state: PipelineState = {
+      ...createPipelineState(contentItem),
+      strategiesApplied: [],
+    };
 
-    // Execute denoise strategies
-    const denoiseResult = await this.executeStrategiesByType(contentItem, StrategyType.DENOISE);
-    allExecutions.push(...denoiseResult.executions);
-    if (denoiseResult.executions.length > 0) {
-      this.mergeOutput(contentItem, denoiseResult.fusedOutput);
-      fusedOutput = denoiseResult.fusedOutput;
-    }
-
-    // Execute semantic strategies
-    const semanticResult = await this.executeStrategiesByType(contentItem, StrategyType.SEMANTIC);
-    allExecutions.push(...semanticResult.executions);
-    if (semanticResult.executions.length > 0) {
-      this.mergeOutput(contentItem, semanticResult.fusedOutput);
-      fusedOutput = semanticResult.fusedOutput;
-    }
-
-    // Execute output strategies
-    contentItem.meta.strategiesApplied = allExecutions.filter(e => e.success).map(e => e.strategyId);
-    const outputResult = await this.executeStrategiesByType(contentItem, StrategyType.OUTPUT);
-    allExecutions.push(...outputResult.executions);
-    if (outputResult.executions.length > 0) {
-      fusedOutput = outputResult.fusedOutput;
-    }
+    const denoiseResult = await this.executeTransformStage(state, StrategyType.DENOISE);
+    state = denoiseResult.state;
+    const semanticResult = await this.executeTransformStage(state, StrategyType.SEMANTIC);
+    state = semanticResult.state;
+    const transformExecutions = [
+      ...denoiseResult.executions,
+      ...semanticResult.executions,
+    ];
 
     // Get historical context if available
     const historicalContext = await this.getHistoricalContext(contentItem.id);
 
-    // Calculate confidence score
-    const confidence = this.scorer.calculateScore(contentItem, allExecutions, {
+    // Score canonical transform state before rendering so every output sees one score.
+    const confidence = this.scorer.calculateScore(projectContentItem(state), transformExecutions, {
       historicalScore: historicalContext as number | undefined,
-      successfulStrategyIds: allExecutions.filter(e => e.success).map(e => e.strategyId),
+      successfulStrategyIds: transformExecutions.filter(e => e.success).map(e => e.strategyId),
     });
+    state = { ...state, confidence };
+
+    const projectedState = projectContentItem(state);
+    projectedState.meta.confidence = confidence.overall;
+    Object.assign(contentItem.meta, projectedState.meta);
+
+    const outputResult = await this.executeOutputStage(state);
+    const allExecutions = [...transformExecutions, ...outputResult.executions];
+    const lastTransformOutput = [...transformExecutions]
+      .reverse()
+      .find(execution => execution.success)?.output;
+    const fusedOutput = outputResult.executions.length > 0
+      ? outputResult.fusedOutput
+      : lastTransformOutput;
 
     const processingTimeMs = Date.now() - startTime;
 
@@ -167,21 +170,67 @@ export class Pipeline {
     return result;
   }
 
-  private async executeStrategiesByType(
-    contentItem: ContentItem,
-    type: StrategyType
-  ): Promise<PipelineExecutedStrategies> {
+  private async executeTransformStage(
+    state: PipelineState,
+    type: StrategyType.DENOISE | StrategyType.SEMANTIC
+  ): Promise<{ state: PipelineState; executions: StrategyExecution[] }> {
     const strategies = this.registry.listByPriority(type);
-    if (strategies.length === 0) {
-      return { executions: [], fusedOutput: undefined };
+    const executions: StrategyExecution[] = [];
+    let nextState = state;
+
+    for (const strategy of strategies) {
+      const item = projectContentItem(nextState);
+      if (!strategy.config.enabled || !strategy.canApply(item)) {
+        continue;
+      }
+
+      const execution = await this.executeStrategy(strategy, item);
+      executions.push(execution);
+
+      if (execution.success) {
+        nextState = {
+          ...mergeStrategyOutput(nextState, execution.output),
+          strategiesApplied: [...nextState.strategiesApplied, execution.strategyId],
+        };
+      }
     }
 
-    const executor = this.createExecutorForStrategies(strategies);
-    const results = await executor.executeStrategies([contentItem]);
+    return { state: nextState, executions };
+  }
+
+  private async executeOutputStage(state: PipelineState): Promise<PipelineExecutedStrategies> {
+    const executions: StrategyExecution[] = [];
+
+    for (const strategy of this.registry.listByPriority(StrategyType.OUTPUT)) {
+      const item = projectContentItem(state);
+      item.meta.confidence = state.confidence?.overall ?? 0;
+      if (!strategy.config.enabled || !strategy.canApply(item)) {
+        continue;
+      }
+
+      executions.push(await this.executeStrategy(strategy, item));
+    }
+
     return {
-      executions: this.convertToStrategyExecutions(results),
-      fusedOutput: type === StrategyType.OUTPUT ? this.fuseFinalOutputs(results) : executor.fuseResults(results),
+      executions,
+      fusedOutput: this.fuseFinalOutputs(executions),
     };
+  }
+
+  private async executeStrategy(strategy: Strategy, item: ContentItem): Promise<StrategyExecution> {
+    try {
+      return await strategy.execute(item);
+    } catch (error) {
+      const now = Date.now();
+      return {
+        id: `exec-${strategy.id}-${now}`,
+        strategyId: strategy.id,
+        startedAt: now,
+        completedAt: now,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   private fuseFinalOutputs(results: { success: boolean; output?: unknown }[]): unknown {
@@ -200,28 +249,6 @@ export class Pipeline {
       sources: successfulResults.length,
       data: successfulResults.map(result => result.output),
     };
-  }
-
-  private createExecutorForStrategies(strategies: Strategy[]): StrategyExecutor {
-    const executor = new StrategyExecutor();
-    for (const strategy of strategies) {
-      executor.register(strategy);
-    }
-    return executor;
-  }
-
-  private convertToStrategyExecutions(
-    results: { strategyId: string; success: boolean; output?: unknown; error?: string }[]
-  ): StrategyExecution[] {
-    return results.map((result, index) => ({
-      id: `exec-${Date.now()}-${index}`,
-      strategyId: result.strategyId,
-      startedAt: Date.now(),
-      completedAt: Date.now(),
-      success: result.success,
-      output: result.output,
-      error: result.error,
-    }));
   }
 
   mergeOutput(contentItem: ContentItem, fusedOutput: unknown): void {

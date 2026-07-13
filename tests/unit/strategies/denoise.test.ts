@@ -135,6 +135,16 @@ describe('Denoise Strategies', () => {
       expect(textLength).toBeGreaterThan(0);
     });
 
+    it('returns cleaned text and document without navigation content', async () => {
+      const html = '<html><body><nav>Navigation</nav><main>Canonical content</main></body></html>';
+      const result = await strategy.execute(createContentItem(html));
+      const output = result.output as { document: string; cleanedText: string };
+
+      expect(output.cleanedText).toContain('Canonical content');
+      expect(output.cleanedText).not.toContain('Navigation');
+      expect(output.document).not.toContain('Navigation');
+    });
+
     it('should remove header elements', async () => {
       const html = '<html><body><header><h1>Site Title</h1></header><p>Content</p></body></html>';
       const item = createContentItem(html);
@@ -218,5 +228,18 @@ describe('Denoise Strategies', () => {
 
       expect(strategy.canApply(item)).toBe(true);
     });
+  });
+
+  it('chains the navigation document into HTML cleaning', async () => {
+    const rawHtml = '<html><body><nav>Navigation</nav><script>rawScript()</script><main>Content</main></body></html>';
+    const navigation = await new NavigationFilterStrategy().execute(createContentItem(rawHtml));
+    const navigationOutput = navigation.output as { document: string; cleanedText: string };
+    const item = createContentItem(rawHtml);
+    item.meta.document = navigationOutput.document;
+    const cleaned = await new HTMLCleanStrategy().execute(item);
+    const output = cleaned.output as { document: string; cleanedText: string };
+
+    expect(output.document).not.toContain('rawScript()');
+    expect(output.cleanedText).toBe('Content');
   });
 });

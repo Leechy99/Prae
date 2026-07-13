@@ -48,7 +48,9 @@ export class JSONSchemaStrategy implements Strategy {
       const text = String(rawFiltered || rawCleaned || rawTextContent || '');
       const title = item.meta?.title as string | undefined;
       const url = item.meta?.url as string | undefined;
-      const confidence = (item.meta?.confidence as number) || 0.8;
+      const confidence = typeof item.meta?.confidence === 'number'
+        ? item.meta.confidence
+        : 0;
       const strategiesApplied = (item.meta?.strategiesApplied as string[]) || [];
       const chunks = item.meta?.chunks as JSONSchemaOutput['chunks'] | undefined;
 
