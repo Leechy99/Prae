@@ -1,7 +1,8 @@
 import { Pipeline } from '../../../src/core/Pipeline';
+import type { RetryPolicy } from '../../../src/core/RetryPolicy';
 import { Strategy, StrategyType, StrategyConfig } from '../../../src/strategies/base/Strategy';
 import { ConfidenceScorer } from '../../../src/core/ConfidenceScorer';
-import type { ContentItem } from '../../../src/types';
+import type { ContentItem, ProcessingResult } from '../../../src/types';
 
 const createContentItem = (meta: Record<string, unknown> = {}): ContentItem => ({
   id: 'test-item-1',
@@ -160,8 +161,8 @@ describe('Pipeline', () => {
       expect(result.strategiesUsed).toHaveLength(1);
       expect(result.strategiesUsed[0].strategyId).toBe('html-clean');
       expect(result.fusedOutput).toBeDefined();
-      // mergeOutput should have updated contentItem.meta
-      expect(contentItem.meta.cleanedText).toBe('Paragraph content here');
+      expect(result.contentItem.meta.cleanedText).toBe('Paragraph content here');
+      expect(contentItem.meta.cleanedText).toBeUndefined();
     });
 
     it('processes through strategy types in DENOISE -> SEMANTIC -> OUTPUT order', async () => {
@@ -236,8 +237,10 @@ describe('Pipeline', () => {
 
       const result = await pipeline.process(contentItem);
 
-      expect(contentItem.meta.filteredText).toBe('Filtered semantic text');
-      expect(contentItem.meta.textContent).toBe('Filtered semantic text');
+      expect(result.contentItem.meta.filteredText).toBe('Filtered semantic text');
+      expect(result.contentItem.meta.textContent).toBe('Filtered semantic text');
+      expect(contentItem.meta.filteredText).toBeUndefined();
+      expect(contentItem.meta.textContent).toContain('Original content');
       expect(result.fusedOutput).toEqual({
         text: 'Filtered semantic text',
         chunks: [{
@@ -331,6 +334,207 @@ describe('Pipeline', () => {
   });
 
   describe('retries on low confidence', () => {
+    it('does not retry a low-confidence result without a retry policy', async () => {
+      const noPolicyPipeline = new Pipeline({ maxRetries: 3 });
+      const retryableText = 'Retryable content. '.repeat(40);
+      let executionCount = 0;
+      const lowConfidenceStrategy: Strategy = {
+        ...createMockStrategy('low-confidence', StrategyType.DENOISE),
+        execute: async () => {
+          executionCount++;
+          return {
+            id: `exec-low-${executionCount}`,
+            strategyId: 'low-confidence',
+            startedAt: executionCount,
+            completedAt: executionCount,
+            success: true,
+            output: { cleanedText: retryableText, textContent: retryableText },
+          };
+        },
+      };
+      noPolicyPipeline.registerStrategy(lowConfidenceStrategy);
+
+      const result = await noPolicyPipeline.process(createContentItem({ textContent: retryableText }));
+
+      expect(executionCount).toBe(1);
+      expect(result.retryCount).toBe(0);
+    });
+
+    it('uses a retry policy to prepare one pristine changed retry', async () => {
+      const retryableText = 'Retryable content. '.repeat(40);
+      const observedAttempts: Array<Record<string, unknown>> = [];
+      const retryPolicy: RetryPolicy = {
+        canRetry: (_result: ProcessingResult, nextAttempt: number) => nextAttempt === 1,
+        prepareAttempt: (original: ContentItem, nextAttempt: number): ContentItem => ({
+          ...original,
+          raw: original.raw.slice(),
+          meta: { ...original.meta, retryVariant: nextAttempt },
+          hints: { ...original.hints },
+        }),
+      };
+      const config = { maxRetries: 3, retryPolicy };
+      const policyPipeline = new Pipeline(config);
+      const strategy: Strategy = {
+        ...createMockStrategy('policy-low-confidence', StrategyType.DENOISE),
+        execute: async item => {
+          observedAttempts.push({ ...item.meta });
+          if (observedAttempts.length === 1) {
+            item.meta.firstAttemptMutation = 'must not leak';
+          }
+          return {
+            id: `exec-policy-${observedAttempts.length}`,
+            strategyId: 'policy-low-confidence',
+            startedAt: observedAttempts.length,
+            completedAt: observedAttempts.length,
+            success: true,
+            output: { cleanedText: retryableText, textContent: retryableText },
+          };
+        },
+      };
+      policyPipeline.registerStrategy(strategy);
+      const contentItem = createContentItem({ textContent: retryableText });
+
+      const result = await policyPipeline.process(contentItem);
+
+      expect(observedAttempts).toHaveLength(2);
+      expect(observedAttempts[1]).toMatchObject({ retryVariant: 1 });
+      expect(observedAttempts[1].firstAttemptMutation).toBeUndefined();
+      expect(result.retryCount).toBe(1);
+      expect(result.contentItem.meta.retryVariant).toBe(1);
+      expect(result.contentItem).not.toBe(contentItem);
+      expect(result.contentItem.raw).not.toBe(contentItem.raw);
+      expect(contentItem.meta).toEqual({ textContent: retryableText });
+    });
+
+    it('passes a fresh clone of the pristine original to every retry preparation', async () => {
+      const retryableText = 'Retryable content. '.repeat(40);
+      const preparationInputs: Array<{
+        rawByte: number;
+        injectedMeta: unknown;
+        encoding: string | undefined;
+        nestedMarker: unknown;
+        possibleTypes: string[] | undefined;
+      }> = [];
+      const retryPolicy: RetryPolicy = {
+        canRetry: (_result: ProcessingResult, nextAttempt: number) => nextAttempt <= 2,
+        prepareAttempt: (original: ContentItem, nextAttempt: number): ContentItem => {
+          preparationInputs.push({
+            rawByte: original.raw[0],
+            injectedMeta: original.meta.injectedByPolicy,
+            encoding: original.hints.encoding,
+            nestedMarker: (original.meta.nested as Record<string, unknown>).marker,
+            possibleTypes: original.hints.possibleTypes?.slice(),
+          });
+          original.raw[0] = 99;
+          original.meta.injectedByPolicy = nextAttempt;
+          (original.meta.nested as Record<string, unknown>).marker = `policy-${nextAttempt}`;
+          original.hints.encoding = `attempt-${nextAttempt}`;
+          original.hints.possibleTypes?.push(`policy-${nextAttempt}`);
+          return original;
+        },
+      };
+      const config = { maxRetries: 3, retryPolicy };
+      const policyPipeline = new Pipeline(config);
+      let executionCount = 0;
+      const strategy: Strategy = {
+        ...createMockStrategy('always-low-confidence', StrategyType.DENOISE),
+        execute: async item => {
+          executionCount++;
+          if (executionCount === 1) {
+            (item.meta.nested as Record<string, unknown>).marker = 'first-attempt-mutation';
+            item.hints.possibleTypes?.push('first-attempt-mutation');
+          }
+          return {
+            id: `exec-pristine-${executionCount}`,
+            strategyId: 'always-low-confidence',
+            startedAt: executionCount,
+            completedAt: executionCount,
+            success: true,
+            output: { cleanedText: retryableText, textContent: retryableText },
+          };
+        },
+      };
+      policyPipeline.registerStrategy(strategy);
+      const contentItem = createContentItem({
+        textContent: retryableText,
+        nested: { marker: 'original' },
+      });
+      contentItem.hints.possibleTypes = ['html'];
+
+      const result = await policyPipeline.process(contentItem);
+
+      expect(preparationInputs).toEqual([
+        {
+          rawByte: 1,
+          injectedMeta: undefined,
+          encoding: undefined,
+          nestedMarker: 'original',
+          possibleTypes: ['html'],
+        },
+        {
+          rawByte: 1,
+          injectedMeta: undefined,
+          encoding: undefined,
+          nestedMarker: 'original',
+          possibleTypes: ['html'],
+        },
+      ]);
+      expect(result.retryCount).toBe(2);
+      expect(contentItem.raw).toEqual(new Uint8Array([1, 2, 3]));
+      expect(contentItem.meta.injectedByPolicy).toBeUndefined();
+      expect(contentItem.meta.nested).toEqual({ marker: 'original' });
+      expect(contentItem.hints.encoding).toBeUndefined();
+      expect(contentItem.hints.possibleTypes).toEqual(['html']);
+    });
+
+    it('does not retry a thrown pipeline failure without a retry policy', async () => {
+      const noPolicyPipeline = new Pipeline({ maxRetries: 3 });
+      let applicabilityChecks = 0;
+      const throwingStrategy: Strategy = {
+        ...createMockStrategy('throwing-applicability', StrategyType.DENOISE),
+        canApply: () => {
+          applicabilityChecks++;
+          throw new Error('cannot determine applicability');
+        },
+      };
+      noPolicyPipeline.registerStrategy(throwingStrategy);
+
+      const result = await noPolicyPipeline.process(createContentItem());
+
+      expect(applicabilityChecks).toBe(1);
+      expect(result.outcome).toBe('FAILED');
+      expect(result.retryCount).toBe(0);
+    });
+
+    it('retries a thrown pipeline failure only when the retry policy authorizes it', async () => {
+      const requestedAttempts: number[] = [];
+      const retryPolicy: RetryPolicy = {
+        canRetry: (_result: ProcessingResult, nextAttempt: number) => {
+          requestedAttempts.push(nextAttempt);
+          return nextAttempt === 1;
+        },
+        prepareAttempt: (original: ContentItem): ContentItem => original,
+      };
+      const config = { maxRetries: 3, retryPolicy };
+      const policyPipeline = new Pipeline(config);
+      let applicabilityChecks = 0;
+      const throwingStrategy: Strategy = {
+        ...createMockStrategy('policy-throwing-applicability', StrategyType.DENOISE),
+        canApply: () => {
+          applicabilityChecks++;
+          throw new Error('cannot determine applicability');
+        },
+      };
+      policyPipeline.registerStrategy(throwingStrategy);
+
+      const result = await policyPipeline.process(createContentItem());
+
+      expect(applicabilityChecks).toBe(2);
+      expect(requestedAttempts).toEqual([1, 2]);
+      expect(result.outcome).toBe('FAILED');
+      expect(result.retryCount).toBe(1);
+    });
+
     it('uses custom ConfidenceScorer with adjusted thresholds for retry testing', async () => {
       // Create a pipeline with a custom scorer that has lower pass threshold
       const customPipeline = new Pipeline({ maxRetries: 2 });

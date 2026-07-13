@@ -8,16 +8,48 @@ import {
   projectContentItem,
   type PipelineState,
 } from './PipelineState';
+import type { RetryPolicy } from './RetryPolicy';
 import type { ExperienceStore } from '../experience/ExperienceStore';
 
 export interface PipelineConfig {
   maxRetries?: number;
   enableCloudEscalation?: boolean;
+  retryPolicy?: RetryPolicy;
 }
 
 interface PipelineExecutedStrategies {
   executions: StrategyExecution[];
   fusedOutput: unknown;
+}
+
+function cloneMetadataValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cloneMetadataValue);
+  }
+  if (value instanceof Uint8Array) {
+    return value.slice();
+  }
+  if (value && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype === Object.prototype || prototype === null) {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, nestedValue]) => [key, cloneMetadataValue(nestedValue)])
+      );
+    }
+  }
+  return value;
+}
+
+function cloneContentItem(contentItem: ContentItem): ContentItem {
+  return {
+    ...contentItem,
+    raw: contentItem.raw.slice(),
+    meta: cloneMetadataValue(contentItem.meta) as Record<string, unknown>,
+    hints: {
+      ...contentItem.hints,
+      possibleTypes: contentItem.hints.possibleTypes?.slice(),
+    },
+  };
 }
 
 export class Pipeline {
@@ -26,12 +58,14 @@ export class Pipeline {
   private experienceStore?: ExperienceStore;
   private maxRetries: number;
   private enableCloudEscalation: boolean;
+  private retryPolicy?: RetryPolicy;
 
   constructor(config: PipelineConfig = {}) {
     this.registry = new StrategyRegistry();
     this.scorer = new ConfidenceScorer();
     this.maxRetries = config.maxRetries ?? 3;
     this.enableCloudEscalation = config.enableCloudEscalation ?? false;
+    this.retryPolicy = config.retryPolicy;
   }
 
   setExperienceStore(store: ExperienceStore): void {
@@ -48,45 +82,40 @@ export class Pipeline {
 
   async process(contentItem: ContentItem): Promise<ProcessingResult> {
     const startTime = Date.now();
+    const pristineOriginal = cloneContentItem(contentItem);
+    let attempt = cloneContentItem(pristineOriginal);
     let retryCount = 0;
-    let lastResult: ProcessingResult | null = null;
 
-    while (retryCount <= this.maxRetries) {
+    while (true) {
+      let result: ProcessingResult;
       try {
-        const result = await this.executePipelineWithRetry(contentItem, retryCount, startTime);
-
-        if (result.outcome === 'SUCCESS' || result.outcome === 'RETRY_SUCCESS') {
-          return result;
-        }
-
-        if (result.outcome === 'CLOUD_ESCALATED' || result.outcome === 'HUMAN_INTERVENTION') {
-          return result;
-        }
-
-        if (result.outcome === 'FAILED') {
-          if (retryCount < this.maxRetries && this.scorer.shouldRetry(result.confidence)) {
-            retryCount++;
-            continue;
-          }
-          return result;
-        }
-
-        return result;
+        result = await this.executePipelineWithRetry(attempt, retryCount, startTime);
       } catch (error) {
-        if (retryCount >= this.maxRetries) {
-          return this.createFailedResult(
-            contentItem,
-            [],
-            startTime,
-            retryCount,
-            error instanceof Error ? error.message : String(error)
-          );
-        }
-        retryCount++;
+        result = this.createFailedResult(
+          attempt,
+          [],
+          startTime,
+          retryCount,
+          error instanceof Error ? error.message : String(error)
+        );
       }
-    }
 
-    return lastResult ?? this.createFailedResult(contentItem, [], startTime, retryCount, 'Max retries exceeded');
+      if (result.outcome === 'SUCCESS' || result.outcome === 'RETRY_SUCCESS') {
+        return result;
+      }
+
+      const nextAttempt = retryCount + 1;
+      if (
+        nextAttempt > this.maxRetries
+        || !this.retryPolicy
+        || !this.retryPolicy.canRetry(result, nextAttempt)
+      ) {
+        return result;
+      }
+
+      retryCount = nextAttempt;
+      attempt = this.retryPolicy.prepareAttempt(cloneContentItem(pristineOriginal), nextAttempt);
+    }
   }
 
   private async executePipelineWithRetry(
