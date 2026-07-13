@@ -166,6 +166,23 @@ describe('ChunkingStrategy', () => {
       expect(text.slice(output.chunks[0].startChar, output.chunks[0].endChar)).toBe(text);
     });
 
+    it.each([
+      ['LF', '\n'],
+      ['CRLF', '\r\n'],
+    ])('keeps every overlapped chunk aligned after a leading %s separator', async (_name, separator) => {
+      const text = separator + '第一句。第二句！'.repeat(80);
+      const item = createContentItem(text);
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      const output = result.output as { chunks: Chunk[]; totalChunks: number };
+      expect(output.chunks.length).toBeGreaterThan(1);
+      for (const chunk of output.chunks) {
+        expect(text.slice(chunk.startChar, chunk.endChar)).toBe(chunk.text);
+      }
+    });
+
     it('returns at least one deterministic token for non-empty short text', async () => {
       const item = createContentItem('中 abcde');
 

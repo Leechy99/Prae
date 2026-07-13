@@ -36,8 +36,8 @@ function splitIntoSentences(text: string): string[] {
     const sentence = text.slice(lastIndex, endIndex);
     if (sentence.trim().length > 0) {
       sentences.push(sentence);
+      lastIndex = endIndex;
     }
-    lastIndex = endIndex;
   }
 
   const remaining = text.slice(lastIndex);
