@@ -67,7 +67,10 @@ export class ConfidenceScorer {
   }
 
   private calculateTextQuality(contentItem: ContentItem): number {
-    const text = (contentItem.meta.cleanedText as string) || (contentItem.meta.textContent as string) || '';
+    const text = (contentItem.meta.filteredText as string | undefined)
+      ?? (contentItem.meta.cleanedText as string | undefined)
+      ?? (contentItem.meta.textContent as string | undefined)
+      ?? '';
 
     if (!text || text.trim().length === 0) {
       return 0;
@@ -79,10 +82,11 @@ export class ConfidenceScorer {
     const wordDensity = text.split(/\s+/).filter(w => w.length > 2).length / Math.max(1, length / 5);
     const densityScore = Math.min(1, wordDensity / 10);
 
-    const hasUpperCase = /[A-Z]/.test(text);
-    const hasLowerCase = /[a-z]/.test(text);
-    const hasPunctuation = /[.!?;:]/.test(text);
-    const formatScore = (hasUpperCase && hasLowerCase ? 0.3 : 0) + (hasPunctuation ? 0.2 : 0);
+    const characters = Array.from(text);
+    const printableCharacters = characters.filter(character => !/\p{C}/u.test(character)).length;
+    const printableDensity = printableCharacters / Math.max(1, characters.length);
+    const hasSentencePunctuation = /[.!?。！？]/u.test(text);
+    const formatScore = printableDensity * 0.3 + (hasSentencePunctuation ? 0.2 : 0);
 
     return Math.min(1, lengthScore * 0.5 + densityScore * 0.3 + formatScore);
   }

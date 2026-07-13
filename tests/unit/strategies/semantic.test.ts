@@ -21,8 +21,18 @@ describe('ChunkingStrategy', () => {
       expect(strategy.canApply(item)).toBe(true);
     });
 
-    it('returns false when textContent length < 100', () => {
+    it('returns true for non-empty short Chinese text', () => {
+      const item = createContentItem('这是一个简短但有效的中文句子。它应该进入语义处理！');
+      expect(strategy.canApply(item)).toBe(true);
+    });
+
+    it('returns true when textContent is non-empty and shorter than 100 characters', () => {
       const item = createContentItem('short text');
+      expect(strategy.canApply(item)).toBe(true);
+    });
+
+    it('returns false for whitespace-only canonical text', () => {
+      const item = createContentItem('   \n\t');
       expect(strategy.canApply(item)).toBe(false);
     });
 
@@ -110,6 +120,73 @@ describe('ChunkingStrategy', () => {
       const result = await strategy.execute(item);
       expect(result.success).toBe(true);
     });
+
+    it('uses filteredText before cleanedText and textContent', async () => {
+      const item: ContentItem = {
+        id: 'test-id',
+        source: 'test-source',
+        raw: new Uint8Array(),
+        meta: {
+          filteredText: '保留的文本。',
+          cleanedText: 'Cleaned text must not be selected.',
+          textContent: 'Raw text must not be selected.',
+        },
+        hints: {}
+      };
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      const output = result.output as { chunks: Chunk[]; totalChunks: number };
+      expect(output.chunks.map(chunk => chunk.text).join(' ')).toBe('保留的文本。');
+    });
+
+    it('treats an empty filteredText as the canonical value', () => {
+      const item: ContentItem = {
+        id: 'test-id',
+        source: 'test-source',
+        raw: new Uint8Array(),
+        meta: { filteredText: '', cleanedText: 'Fallback text must not be selected.' },
+        hints: {}
+      };
+
+      expect(strategy.canApply(item)).toBe(false);
+    });
+
+    it('retains CJK sentence punctuation and stable sentence order', async () => {
+      const text = '第一句。第二句！第三句？';
+      const item = createContentItem(text);
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      const output = result.output as { chunks: Chunk[]; totalChunks: number };
+      expect(output.chunks).toHaveLength(1);
+      expect(output.chunks[0].text).toBe(text);
+      expect(text.slice(output.chunks[0].startChar, output.chunks[0].endChar)).toBe(text);
+    });
+
+    it('returns at least one deterministic token for non-empty short text', async () => {
+      const item = createContentItem('中 abcde');
+
+      const first = await strategy.execute(item);
+      const second = await strategy.execute(item);
+
+      const firstChunk = (first.output as { chunks: Chunk[] }).chunks[0];
+      const secondChunk = (second.output as { chunks: Chunk[] }).chunks[0];
+      expect(firstChunk.tokenEstimate).toBe(3);
+      expect(secondChunk.tokenEstimate).toBe(firstChunk.tokenEstimate);
+      expect(firstChunk.tokenEstimate).toBeGreaterThanOrEqual(1);
+    });
+
+    it('keeps a meaningful token estimate for other non-Latin scripts', async () => {
+      const item = createContentItem('مرحبا'.repeat(80));
+
+      const result = await strategy.execute(item);
+
+      const chunk = (result.output as { chunks: Chunk[] }).chunks[0];
+      expect(chunk.tokenEstimate).toBeGreaterThan(1);
+    });
   });
 });
 
@@ -132,8 +209,18 @@ describe('RelevanceFilterStrategy', () => {
       expect(strategy.canApply(item)).toBe(true);
     });
 
-    it('returns false when textContent length < 100', () => {
+    it('returns true for non-empty short Chinese text', () => {
+      const item = createContentItem('这是一个简短但有效的中文句子。它应该进入语义处理！');
+      expect(strategy.canApply(item)).toBe(true);
+    });
+
+    it('returns true when textContent is non-empty and shorter than 100 characters', () => {
       const item = createContentItem('short');
+      expect(strategy.canApply(item)).toBe(true);
+    });
+
+    it('returns false for whitespace-only canonical text', () => {
+      const item = createContentItem('  \n\t');
       expect(strategy.canApply(item)).toBe(false);
     });
   });
@@ -199,6 +286,47 @@ describe('RelevanceFilterStrategy', () => {
       const output = result.output as { filteredText: string; removedRatio: number };
       expect(output.filteredText).toBe('');
       expect(output.removedRatio).toBe(0);
+    });
+
+    it('preserves a valid document when every paragraph is short', async () => {
+      const text = '这是一个简短但有效的中文句子。\n\n它应该完整进入语义处理！';
+      const item = createContentItem(text);
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      expect(result.output).toEqual({ filteredText: text, removedRatio: 0 });
+    });
+
+    it('uses filteredText before cleanedText and textContent', async () => {
+      const item: ContentItem = {
+        id: 'test-id',
+        source: 'test-source',
+        raw: new Uint8Array(),
+        meta: {
+          filteredText: '这是应当保留的短文本。',
+          cleanedText: 'This cleaned fallback is deliberately long enough to be selected by mistake.',
+          textContent: 'This raw fallback is also deliberately long enough to be selected by mistake.',
+        },
+        hints: {}
+      };
+
+      const result = await strategy.execute(item);
+
+      expect(result.success).toBe(true);
+      expect(result.output).toEqual({ filteredText: '这是应当保留的短文本。', removedRatio: 0 });
+    });
+
+    it('treats an empty filteredText as the canonical value', () => {
+      const item: ContentItem = {
+        id: 'test-id',
+        source: 'test-source',
+        raw: new Uint8Array(),
+        meta: { filteredText: '', cleanedText: 'Fallback text must not be selected.' },
+        hints: {}
+      };
+
+      expect(strategy.canApply(item)).toBe(false);
     });
   });
 });

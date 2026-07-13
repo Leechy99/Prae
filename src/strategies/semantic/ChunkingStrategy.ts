@@ -18,23 +18,30 @@ export interface ChunkingResult {
 const TARGET_CHUNK_SIZE = 512;
 const CHUNK_OVERLAP = 64;
 
+function getCanonicalText(item: ContentItem): string {
+  return (item.meta?.filteredText as string | undefined)
+    ?? (item.meta?.cleanedText as string | undefined)
+    ?? (item.meta?.textContent as string | undefined)
+    ?? '';
+}
+
 function splitIntoSentences(text: string): string[] {
-  const sentenceEnders = /([.!?]+[\s\n]+)|([\n]+)/g;
+  const sentenceEnders = /[.!?。！？]+\s*|[\n]+/g;
   const sentences: string[] = [];
   let lastIndex = 0;
   let match;
 
   while ((match = sentenceEnders.exec(text)) !== null) {
     const endIndex = match.index + match[0].length;
-    const sentence = text.slice(lastIndex, endIndex).trim();
-    if (sentence.length > 0) {
+    const sentence = text.slice(lastIndex, endIndex);
+    if (sentence.trim().length > 0) {
       sentences.push(sentence);
     }
     lastIndex = endIndex;
   }
 
-  const remaining = text.slice(lastIndex).trim();
-  if (remaining.length > 0) {
+  const remaining = text.slice(lastIndex);
+  if (remaining.trim().length > 0) {
     sentences.push(remaining);
   }
 
@@ -42,7 +49,12 @@ function splitIntoSentences(text: string): string[] {
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  const cjkCharacters = text.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)?.length ?? 0;
+  const latinWordCharacters = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
+  const wordCharacters = text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+  const otherWordCharacters = Math.max(0, wordCharacters - cjkCharacters - latinWordCharacters);
+
+  return Math.max(1, Math.ceil(cjkCharacters + (latinWordCharacters + otherWordCharacters) / 4));
 }
 
 function createChunks(text: string): ChunkingResult {
@@ -59,9 +71,7 @@ function createChunks(text: string): ChunkingResult {
 
   for (let i = 0; i < sentences.length; i++) {
     const sentence = sentences[i];
-    const potentialChunk = currentChunk.length > 0
-      ? currentChunk + ' ' + sentence
-      : sentence;
+    const potentialChunk = currentChunk + sentence;
 
     if (potentialChunk.length <= TARGET_CHUNK_SIZE) {
       currentChunk = potentialChunk;
@@ -79,7 +89,7 @@ function createChunks(text: string): ChunkingResult {
 
       const overlapText = currentChunk.slice(-CHUNK_OVERLAP);
       currentStart = currentStart + currentChunk.length - overlapText.length;
-      currentChunk = overlapText + ' ' + sentence;
+      currentChunk = overlapText + sentence;
     }
   }
 
@@ -112,15 +122,14 @@ export class ChunkingStrategy implements Strategy {
   }
 
   canApply(item: ContentItem): boolean {
-    const textContent = (item.meta?.textContent as string) || (item.meta?.cleanedText as string) || '';
-    return textContent.length >= 100;
+    return getCanonicalText(item).trim().length > 0;
   }
 
   async execute(item: ContentItem): Promise<StrategyExecution> {
     const startedAt = Date.now();
 
     try {
-      const textContent = (item.meta?.textContent as string) || (item.meta?.cleanedText as string) || '';
+      const textContent = getCanonicalText(item);
       const result = createChunks(textContent);
 
       return {

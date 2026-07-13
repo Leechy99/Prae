@@ -9,6 +9,13 @@ export interface RelevanceFilterResult {
 const MIN_PARAGRAPH_LENGTH = 50;
 const SIMILARITY_THRESHOLD = 0.7;
 
+function getCanonicalText(item: ContentItem): string {
+  return (item.meta?.filteredText as string | undefined)
+    ?? (item.meta?.cleanedText as string | undefined)
+    ?? (item.meta?.textContent as string | undefined)
+    ?? '';
+}
+
 function tokenize(text: string): Set<string> {
   return new Set(text.toLowerCase().split(/\s+/).filter(word => word.length > 0));
 }
@@ -71,16 +78,27 @@ export class RelevanceFilterStrategy implements Strategy {
   }
 
   canApply(item: ContentItem): boolean {
-    const textContent = (item.meta?.textContent as string) || (item.meta?.cleanedText as string) || '';
-    return textContent.length >= 100;
+    return getCanonicalText(item).trim().length > 0;
   }
 
   async execute(item: ContentItem): Promise<StrategyExecution> {
     const startedAt = Date.now();
 
     try {
-      const textContent = (item.meta?.textContent as string) || (item.meta?.cleanedText as string) || '';
+      const textContent = getCanonicalText(item);
       const paragraphs = splitIntoParagraphs(textContent);
+
+      if (paragraphs.length > 0 && paragraphs.every(paragraph => paragraph.length < MIN_PARAGRAPH_LENGTH)) {
+        return {
+          id: crypto.randomUUID(),
+          strategyId: this.id,
+          startedAt,
+          completedAt: Date.now(),
+          success: true,
+          output: { filteredText: textContent, removedRatio: 0 } satisfies RelevanceFilterResult
+        };
+      }
+
       const { filtered, removedCount } = filterParagraphs(paragraphs);
       const filteredText = filtered.join('\n\n');
       const removedRatio = paragraphs.length > 0 ? removedCount / paragraphs.length : 0;

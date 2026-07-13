@@ -103,6 +103,34 @@ describe('ConfidenceScorer', () => {
       expect(scoreTextContent.components.textQuality).toBeGreaterThan(0.5);
     });
 
+    it('gives Chinese text a language-neutral printable and sentence-format contribution', () => {
+      const withSentencePunctuation = createContentItem({
+        filteredText: '这是一个简短但有效的中文句子。',
+      });
+      const withoutSentencePunctuation = createContentItem({
+        filteredText: '这是一个简短但有效的中文句子',
+      });
+
+      const punctuatedScore = scorer.calculateScore(withSentencePunctuation, []);
+      const unpunctuatedScore = scorer.calculateScore(withoutSentencePunctuation, []);
+
+      expect(punctuatedScore.components.textQuality).toBeGreaterThan(0.2);
+      expect(punctuatedScore.components.textQuality)
+        .toBeGreaterThan(unpunctuatedScore.components.textQuality);
+    });
+
+    it('uses filteredText before cleanedText and textContent for text quality', () => {
+      const contentItem = createContentItem({
+        filteredText: '',
+        cleanedText: 'This fallback has excellent printable density and sentence punctuation.',
+        textContent: 'This raw fallback must not be scored either.',
+      });
+
+      const score = scorer.calculateScore(contentItem, []);
+
+      expect(score.components.textQuality).toBe(0);
+    });
+
     it('calculates entity extraction from entities, mentions, and namedEntities metadata', () => {
       const contentWithEntities = createContentItem({
         cleanedText: 'Sample text.',
