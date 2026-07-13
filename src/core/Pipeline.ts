@@ -124,12 +124,7 @@ export class Pipeline {
 
     const outputResult = await this.executeOutputStage(state);
     const allExecutions = [...transformExecutions, ...outputResult.executions];
-    const lastTransformOutput = [...transformExecutions]
-      .reverse()
-      .find(execution => execution.success)?.output;
-    const fusedOutput = outputResult.executions.length > 0
-      ? outputResult.fusedOutput
-      : lastTransformOutput;
+    const fusedOutput = outputResult.fusedOutput;
 
     const processingTimeMs = Date.now() - startTime;
 
@@ -218,15 +213,16 @@ export class Pipeline {
   }
 
   private async executeStrategy(strategy: Strategy, item: ContentItem): Promise<StrategyExecution> {
+    const startedAt = Date.now();
     try {
       return await strategy.execute(item);
     } catch (error) {
-      const now = Date.now();
+      const completedAt = Date.now();
       return {
-        id: `exec-${strategy.id}-${now}`,
+        id: `exec-${strategy.id}-${startedAt}`,
         strategyId: strategy.id,
-        startedAt: now,
-        completedAt: now,
+        startedAt,
+        completedAt,
         success: false,
         error: error instanceof Error ? error.message : String(error),
       };

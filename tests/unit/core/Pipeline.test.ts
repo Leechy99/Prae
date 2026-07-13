@@ -129,6 +129,20 @@ describe('Pipeline', () => {
       expect(result.fusedOutput).toEqual({ observed: undefined });
     });
 
+    it('keeps an unsupported transform output diagnostic-only when no renderer applies', async () => {
+      pipeline.registerStrategy(createMockStrategy('diagnostic-only', StrategyType.DENOISE, true, {
+        arbitraryDiagnostic: 'must not become public output',
+      }));
+
+      const result = await pipeline.process(createContentItem());
+
+      expect(result.strategiesUsed[0].output).toEqual({
+        arbitraryDiagnostic: 'must not become public output',
+      });
+      expect(result.fusedOutput).toEqual({ type: 'failed', sources: 0, data: [] });
+      expect(result.fusedOutput).not.toEqual(result.strategiesUsed[0].output);
+    });
+
     it('executes denoise strategies and updates contentItem.meta with cleanedText', async () => {
       const htmlContent = '<html><body><nav>Nav</nav><p>Paragraph content here</p></body></html>';
       const contentItem = createContentItem({ textContent: htmlContent });
@@ -475,6 +489,46 @@ describe('Pipeline', () => {
       const result = await pipeline.process(contentItem);
 
       expect(result.strategiesUsed).toHaveLength(0);
+    });
+
+    it('records thrown strategy timing from before execution through failure completion', async () => {
+      const throwingPipeline = new Pipeline({ maxRetries: 0 });
+      const now = jest.spyOn(Date, 'now')
+        .mockReturnValueOnce(10)
+        .mockReturnValueOnce(20)
+        .mockReturnValueOnce(30)
+        .mockReturnValueOnce(40)
+        .mockReturnValueOnce(50)
+        .mockReturnValue(60);
+      const throwingStrategy: Strategy = {
+        id: 'throwing-strategy',
+        name: 'Throwing Strategy',
+        type: StrategyType.DENOISE,
+        version: '1.0.0',
+        config: { enabled: true, priority: 1, params: {} },
+        canApply: () => true,
+        execute: async () => {
+          throw new Error('strategy failed');
+        },
+      };
+
+      try {
+        throwingPipeline.registerStrategy(throwingStrategy);
+        const result = await throwingPipeline.process(createContentItem());
+        const execution = result.strategiesUsed[0];
+
+        expect(execution).toMatchObject({
+          id: 'exec-throwing-strategy-20',
+          strategyId: 'throwing-strategy',
+          startedAt: 20,
+          completedAt: 30,
+          success: false,
+          error: 'strategy failed',
+        });
+        expect(execution.completedAt).toBeGreaterThanOrEqual(execution.startedAt);
+      } finally {
+        now.mockRestore();
+      }
     });
   });
 
