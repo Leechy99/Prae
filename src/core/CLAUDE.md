@@ -109,12 +109,15 @@ graph TD
     D --> F["ConfidenceScorer.calculateScore"]
     F --> E["OUTPUT strategies\npriority-sorted"]
     E --> G{"score.isPassing?"}
-    G -->|yes| H["outcome = SUCCESS"]
-    G -->|no, score >= 0.6| I["shouldRetry? -> retry or FAILED"]
-    G -->|score < 0.4| J{"enableCloudEscalation?"}
-    J -->|yes| K["CLOUD_ESCALATED"]
-    J -->|no| L["HUMAN_INTERVENTION"]
-    G --> M["ExperienceStore.recordProcessing"]
+    G -->|yes| H["SUCCESS or RETRY_SUCCESS"]
+    G -->|no| I["Non-success outcome from thresholds/escalation"]
+    H --> M["ExperienceStore.recordProcessing"]
+    I --> M
+    M --> N{"Successful outcome?"}
+    N -->|yes| O["Return result"]
+    N -->|no| P{"Injected RetryPolicy authorizes nextAttempt\nand nextAttempt <= maxRetries?"}
+    P -->|yes| B
+    P -->|no| Q["Return terminal result"]
 ```
 
 ## Mermaid Diagram — Module Relationships
@@ -147,6 +150,8 @@ Transforms execute one at a time in strict type order, with each successful outp
 ### Output Merging (mergeOutput)
 
 Known transform output is merged into typed `PipelineState` and projected into the next `ContentItem`; output renderers do not feed another transform stage:
+
+Canonical text fields are normalized at this boundary. Nullish precedence remains `filteredText ?? cleanedText ?? textContent ?? ''`; a selected non-string value is converted with `String(value)`, while an explicitly empty string stays authoritative. `ConfidenceScorer` and output renderers use the same neutral canonical-text utility.
 
 | Output Type | Meta Keys Set |
 |-------------|---------------|

@@ -19,7 +19,7 @@ strategies/
 │   ├── ChunkingStrategy.ts    # Sentence-based chunking (512 char target)
 │   └── RelevanceFilterStrategy.ts  # Paragraph dedup via Jaccard similarity
 └── output/
-    ├── CanonicalText.ts        # Shared nullish canonical-text selection
+    ├── CanonicalText.ts        # ContentItem adapter for shared canonical-text selection
     ├── JSONSchemaStrategy.ts   # Structured JSON output
     └── MarkdownStrategy.ts    # Markdown output with title heading
 ```
@@ -226,7 +226,7 @@ Priority order for selecting output:
 
 ### Canonical Output Text
 
-JSON and Markdown renderers share nullish selection via `filteredText ?? cleanedText ?? textContent ?? ''`, then normalize the selected value to a string. An explicitly empty `filteredText` is authoritative: `canApply()` returns false and direct `execute()` renders empty content instead of reviving stale earlier text.
+JSON and Markdown renderers delegate through `output/CanonicalText.ts` to the neutral `src/utils/CanonicalText.ts` contract also used by PipelineState and ConfidenceScorer. Selection uses `filteredText ?? cleanedText ?? textContent ?? ''`, then normalizes the selected value to a string. An explicitly empty `filteredText` is authoritative: `canApply()` returns false and direct `execute()` renders empty content instead of reviving stale earlier text.
 
 ### HTMLCleanStrategy
 

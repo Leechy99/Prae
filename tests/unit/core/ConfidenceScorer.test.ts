@@ -131,6 +131,20 @@ describe('ConfidenceScorer', () => {
       expect(score.components.textQuality).toBe(0);
     });
 
+    it.each([42, 0])('normalizes numeric canonical metadata %p before scoring', value => {
+      const numeric = createContentItem({
+        filteredText: value,
+        cleanedText: 'stale cleaned fallback',
+      });
+      const normalized = createContentItem({
+        filteredText: String(value),
+        cleanedText: 'stale cleaned fallback',
+      });
+
+      expect(scorer.calculateScore(numeric, []))
+        .toEqual(scorer.calculateScore(normalized, []));
+    });
+
     it('calculates entity extraction from entities, mentions, and namedEntities metadata', () => {
       const contentWithEntities = createContentItem({
         cleanedText: 'Sample text.',

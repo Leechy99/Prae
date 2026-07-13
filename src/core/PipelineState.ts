@@ -1,5 +1,6 @@
 import type { ConfidenceScore, ContentChunk, ContentItem } from '../types';
 import type { StrategyOutputFields } from '../strategies/base/StrategyOutput';
+import { getCanonicalText, normalizeCanonicalTextValue } from '../utils/CanonicalText';
 
 export interface PipelineMetrics {
   readonly [name: string]: number;
@@ -142,9 +143,9 @@ function readSemantic(source: Record<string, unknown>): PipelineSemanticState {
 export function createPipelineState(item: ContentItem): PipelineState {
   const contentItem = cloneContentItem(item);
   const meta = contentItem.meta;
-  const cleanedText = stringValue(meta.cleanedText);
-  const filteredText = stringValue(meta.filteredText);
-  const textContent = stringValue(meta.textContent) ?? '';
+  const cleanedText = normalizeCanonicalTextValue(meta.cleanedText);
+  const filteredText = normalizeCanonicalTextValue(meta.filteredText);
+  const textContent = normalizeCanonicalTextValue(meta.textContent) ?? '';
   const strategiesApplied = Array.isArray(meta.strategiesApplied)
     ? meta.strategiesApplied.filter((id): id is string => typeof id === 'string')
     : [];
@@ -152,7 +153,7 @@ export function createPipelineState(item: ContentItem): PipelineState {
   return {
     contentItem,
     document: stringValue(meta.document),
-    text: filteredText ?? cleanedText ?? textContent,
+    text: getCanonicalText(meta),
     cleanedText,
     filteredText,
     chunks: readChunks(meta.chunks),
@@ -173,9 +174,16 @@ export function mergeStrategyOutput(state: PipelineState, output: unknown): Pipe
   const next: Partial<StrategyOutputFields> = {};
   let recognized = false;
 
-  for (const name of ['document', 'cleanedText', 'textContent', 'filteredText', 'context'] as const) {
+  for (const name of ['document', 'context'] as const) {
     if (typeof source[name] === 'string') {
       next[name] = source[name];
+      recognized = true;
+    }
+  }
+  for (const name of ['cleanedText', 'textContent', 'filteredText'] as const) {
+    const value = normalizeCanonicalTextValue(source[name]);
+    if (value !== undefined) {
+      next[name] = value;
       recognized = true;
     }
   }

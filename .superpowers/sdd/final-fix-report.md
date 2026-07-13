@@ -128,3 +128,64 @@ Known residual concerns: none within the final-fix brief. Arbitrary custom metad
 Subject: `fix: close pipeline correctness review findings`
 
 This report is included in the single final-review commit; the resulting SHA is returned with the handoff.
+
+---
+
+## Follow-up: Canonical Boundary Consistency (2026-07-14)
+
+### Finding
+
+The output helper normalized non-string metadata, but initial PipelineState only accepted strings and ConfidenceScorer used `as string` assertions. Consequently, `filteredText: 42` could throw during scoring and synthesize a pipeline failure, while `filteredText: 0` was treated as absent by core code but as canonical by renderers.
+
+### RED
+
+Added regressions for `42` and `0` in:
+
+- `tests/unit/core/Pipeline.test.ts` using the real Pipeline plus JSON and Markdown renderers
+- `tests/unit/core/PipelineState.test.ts`
+- `tests/unit/core/ConfidenceScorer.test.ts`
+
+Command:
+
+```text
+npm.cmd test -- --runInBand --coverage=false tests/unit/core/Pipeline.test.ts tests/unit/core/PipelineState.test.ts tests/unit/core/ConfidenceScorer.test.ts
+```
+
+Observed: 6 failed, 58 passed. `42` threw `text.trim is not a function`; `0` scored as empty; PipelineState dropped both numeric values; Pipeline projected unsanitized numeric metadata.
+
+### GREEN implementation
+
+- Added neutral `src/utils/CanonicalText.ts` with nullish selection and safe string normalization.
+- PipelineState normalizes canonical fields during initial state creation and transform merging.
+- ConfidenceScorer consumes the neutral contract and no longer asserts unknown metadata as string.
+- The output adapter delegates to the same contract.
+- Nullish precedence and authoritative empty-string behavior remain unchanged.
+- No generic arbitrary-metadata deep cloning was added.
+
+Focused command:
+
+```text
+npm.cmd test -- --runInBand --coverage=false tests/unit/core/Pipeline.test.ts tests/unit/core/PipelineState.test.ts tests/unit/core/ConfidenceScorer.test.ts tests/unit/strategies/output.test.ts
+```
+
+Result: 4 suites passed, 89 tests passed.
+
+### Documentation correction
+
+The Core flow diagram now makes retry authorization explicit: a retry occurs only when an injected `RetryPolicy` authorizes `nextAttempt` and `nextAttempt <= maxRetries`; otherwise the terminal result is returned.
+
+### Follow-up verification
+
+- Focused Pipeline/State/Scorer/Output: 4 suites, 89 tests passed.
+- `npm.cmd run lint`: PASS.
+- `npm.cmd run build`: PASS.
+- Full default coverage: 12 suites, 200 tests passed.
+  - Statements: 93.42%
+  - Branches: 81.27%
+  - Functions: 95.42%
+  - Lines: 93.18%
+- Elevated `npm.cmd run test:e2e`: 3/3 passed in 2.1s.
+- `git diff --check`: PASS.
+- Pre-commit status contains only the scoped canonical utility/state/scorer/adapter, regressions, Core/Strategy docs, and this appended report.
+
+Independent follow-up review: no findings. The reviewer confirmed consistent `42`/`0` normalization, preserved nullish and authoritative-empty semantics, no dependency cycle, accurate policy-gated retry documentation, integrated regression coverage, and narrow scope.

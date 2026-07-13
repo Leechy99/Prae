@@ -4,6 +4,8 @@ import { Strategy, StrategyType, StrategyConfig } from '../../../src/strategies/
 import { ConfidenceScorer } from '../../../src/core/ConfidenceScorer';
 import type { ExperienceStore } from '../../../src/experience/ExperienceStore';
 import type { ContentItem, ProcessingResult } from '../../../src/types';
+import { JSONSchemaStrategy } from '../../../src/strategies/output/JSONSchemaStrategy';
+import { MarkdownStrategy } from '../../../src/strategies/output/MarkdownStrategy';
 
 const createContentItem = (meta: Record<string, unknown> = {}): ContentItem => ({
   id: 'test-item-1',
@@ -332,6 +334,42 @@ describe('Pipeline', () => {
         output.metadata.confidence === result.confidence.overall
       )).toBe(true);
     });
+
+    it.each([42, 0])(
+      'normalizes numeric canonical metadata %p consistently through scoring and rendering',
+      async canonicalValue => {
+        const contentItem = createContentItem({
+          filteredText: canonicalValue,
+          cleanedText: 'stale cleaned fallback',
+          textContent: 'stale original fallback',
+        });
+        pipeline.registerStrategy(new JSONSchemaStrategy());
+        pipeline.registerStrategy(new MarkdownStrategy());
+
+        const result = await pipeline.process(contentItem);
+        const expectedText = String(canonicalValue);
+        const expectedConfidence = new ConfidenceScorer().calculateScore(result.contentItem, []);
+        const fused = result.fusedOutput as {
+          type: 'fused';
+          data: Array<{
+            content?: { text: string };
+            markdown?: string;
+            metadata: { confidence: number };
+          }>;
+        };
+
+        expect(result.outcome).not.toBe('FAILED');
+        expect(result.strategiesUsed).toHaveLength(2);
+        expect(result.strategiesUsed.every(execution => execution.success)).toBe(true);
+        expect(result.strategiesUsed).not.toContainEqual(expect.objectContaining({ strategyId: 'pipeline' }));
+        expect(result.contentItem.meta.filteredText).toBe(expectedText);
+        expect(result.contentItem.meta.textContent).toBe(expectedText);
+        expect(result.confidence).toEqual(expectedConfidence);
+        expect(fused.data.find(output => output.content)?.content?.text).toBe(expectedText);
+        expect(fused.data.find(output => output.markdown !== undefined)?.markdown).toBe(expectedText);
+        expect(fused.data.every(output => output.metadata.confidence === result.confidence.overall)).toBe(true);
+      }
+    );
   });
 
   describe('retries on low confidence', () => {

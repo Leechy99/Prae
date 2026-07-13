@@ -77,6 +77,21 @@ describe('PipelineState', () => {
     expect(cleaned.text).toBe('cleaned');
   });
 
+  it.each([42, 0])('normalizes numeric filteredText %p at the state boundary', value => {
+    const state = createPipelineState(createItem({
+      filteredText: value,
+      cleanedText: 'stale cleaned fallback',
+      textContent: 'stale original fallback',
+    }));
+
+    expect(state.filteredText).toBe(String(value));
+    expect(state.text).toBe(String(value));
+    expect(projectContentItem(state).meta).toMatchObject({
+      filteredText: String(value),
+      textContent: String(value),
+    });
+  });
+
   it('projects fresh mutable values without changing the source item or state', () => {
     const item = createItem({ strategiesApplied: ['cleaner'] });
     const state = mergeStrategyOutput(createPipelineState(item), {

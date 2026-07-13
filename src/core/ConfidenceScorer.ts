@@ -1,4 +1,5 @@
 import type { ConfidenceScore, ConfidenceConfig, StrategyExecution, ContentItem } from '../types';
+import { getCanonicalText } from '../utils/CanonicalText';
 
 const DEFAULT_CONFIG: ConfidenceConfig = {
   thresholds: {
@@ -67,10 +68,7 @@ export class ConfidenceScorer {
   }
 
   private calculateTextQuality(contentItem: ContentItem): number {
-    const text = (contentItem.meta.filteredText as string | undefined)
-      ?? (contentItem.meta.cleanedText as string | undefined)
-      ?? (contentItem.meta.textContent as string | undefined)
-      ?? '';
+    const text = getCanonicalText(contentItem.meta);
 
     if (!text || text.trim().length === 0) {
       return 0;
