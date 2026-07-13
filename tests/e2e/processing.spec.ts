@@ -4,25 +4,8 @@ const API_KEY = 'test-api-key';
 
 test.describe('Processing API', () => {
   test('POST /api/v1/process - processes HTML and returns cleaned content', async ({ request }) => {
-    // Create a simple HTML document with noise
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Test Page</title>
-          <style>.nav { color: red; }</style>
-        </head>
-        <body>
-          <nav class="nav">Navigation content</nav>
-          <main>
-            <h1>Multilingual Main Content</h1>
-            <p>This is the main content of the page.</p>
-            <p>这是用于验证多语言语义提取的主要内容，应该被正确保留并分块。</p>
-          </main>
-          <footer>Footer info</footer>
-        </body>
-      </html>
-    `;
+    const expectedText = 'Hello 世界，这是简短的多语言内容。';
+    const html = `<!doctype html><html><body><nav>Noise</nav><main><p>${expectedText}</p></main></body></html>`;
 
     // Base64 encode the HTML
     const base64Content = Buffer.from(html).toString('base64');
@@ -44,10 +27,18 @@ test.describe('Processing API', () => {
     expect(body.result).toBeDefined();
     expect(body.result.outcome).toBeDefined();
     expect(body.result.strategiesUsed).toBeDefined();
-    expect(body.result.strategiesUsed.map((s: { strategyId: string }) => s.strategyId))
-      .toEqual(expect.arrayContaining(['chunking', 'relevance-filter']));
+    expect(body.result.strategiesUsed).toEqual(expect.arrayContaining([
+      expect.objectContaining({ strategyId: 'chunking', success: true }),
+      expect.objectContaining({ strategyId: 'relevance-filter', success: true }),
+    ]));
 
     const outputs = body.result.fusedOutput.data;
+    const canonicalText = outputs[0].content.text as string;
+    expect(canonicalText).toBe(expectedText);
+    expect(canonicalText.length).toBeLessThan(100);
+    expect(outputs[0].metadata.strategiesApplied)
+      .toEqual(expect.arrayContaining(['chunking', 'relevance-filter']));
+    expect(outputs[0].chunks[0].text).toBe(expectedText);
     expect(outputs[0].metadata.confidence).toBe(body.result.confidence.overall);
     expect(outputs[1].metadata.confidence).toBe(body.result.confidence.overall);
   });
