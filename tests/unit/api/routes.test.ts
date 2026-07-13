@@ -239,16 +239,39 @@ describe('API Routes', () => {
     });
 
     it('records feedback with valid request', async () => {
+      const processResponse = await request(app)
+        .post('/api/v1/process')
+        .set('X-API-Key', 'dev-api-key')
+        .send({
+          content: Buffer.from('<html><body>Feedback target</body></html>').toString('base64'),
+          contentType: 'text/html',
+        });
+      const contentItemId = processResponse.body.result.contentItemId;
+
       const response = await request(app)
         .post('/api/v1/experience/feedback')
         .set('X-API-Key', 'dev-api-key')
-        .send({ contentItemId: 'test-item', rating: 4, feedback: 'Good processing' });
+        .send({ contentItemId, rating: 4, feedback: 'Good processing' });
 
+      expect(processResponse.status).toBe(200);
       expect(response.status).toBe(200);
       expect(response.body).toHaveProperty('success', true);
       expect(response.body).toHaveProperty('message', 'Feedback recorded');
-      expect(response.body.data).toHaveProperty('contentItemId', 'test-item');
+      expect(response.body.data).toHaveProperty('contentItemId', contentItemId);
       expect(response.body.data).toHaveProperty('rating', 4);
+    });
+
+    it('returns 404 when feedback target does not exist', async () => {
+      const response = await request(app)
+        .post('/api/v1/experience/feedback')
+        .set('X-API-Key', 'dev-api-key')
+        .send({ contentItemId: 'missing-item', rating: 4 });
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({
+        error: 'Experience Record Not Found',
+        message: 'No experience record matches the supplied contentItemId',
+      });
     });
 
     it('writes feedback to the configured experience store', async () => {
@@ -257,7 +280,7 @@ describe('API Routes', () => {
         getLatest: jest.fn().mockResolvedValue(null),
         getByOutcome: jest.fn().mockResolvedValue([]),
         getRecords: jest.fn().mockResolvedValue([]),
-        addHumanFeedback: jest.fn().mockResolvedValue(undefined),
+        addHumanFeedback: jest.fn().mockResolvedValue(true),
         getLearnableRecords: jest.fn().mockResolvedValue([]),
         getHistoricalContext: jest.fn().mockResolvedValue(undefined),
         recordProcessing: jest.fn().mockResolvedValue(undefined),

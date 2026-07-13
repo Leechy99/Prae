@@ -149,10 +149,20 @@ describe('LocalExperienceStore', () => {
       const record = await store.getLatest('test');
       expect(record).not.toBeNull();
 
-      await store.addHumanFeedback(record!.id, 'Needs better entity extraction', undefined, 'default');
+      const updatedRecord = await store.addHumanFeedback(
+        record!.id,
+        'Needs better entity extraction',
+        undefined,
+        'default'
+      );
 
+      expect(updatedRecord).toBe(true);
       const updated = await store.getLatest('test');
       expect(updated?.humanFeedback?.feedback).toBe('Needs better entity extraction');
+    });
+
+    it('returns false when no record matches the feedback target', async () => {
+      await expect(store.addHumanFeedback('missing-item', 'No matching record')).resolves.toBe(false);
     });
 
     it('adds feedback by content item id', async () => {

@@ -2,6 +2,7 @@ import { Pipeline } from '../../../src/core/Pipeline';
 import type { RetryPolicy } from '../../../src/core/RetryPolicy';
 import { Strategy, StrategyType, StrategyConfig } from '../../../src/strategies/base/Strategy';
 import { ConfidenceScorer } from '../../../src/core/ConfidenceScorer';
+import type { ExperienceStore } from '../../../src/experience/ExperienceStore';
 import type { ContentItem, ProcessingResult } from '../../../src/types';
 
 const createContentItem = (meta: Record<string, unknown> = {}): ContentItem => ({
@@ -609,6 +610,35 @@ describe('Pipeline', () => {
       expect(result.confidence.isPassing).toBe(false);
       expect(result.retryCount).toBe(3);
       expect(result.fusedOutput).toEqual({ type: 'failed', sources: 0, data: [] });
+    });
+  });
+
+  describe('experience store diagnostics', () => {
+    it('reports record-processing errors without failing processing', async () => {
+      const error = new Error('experience store unavailable');
+      const onDiagnostic = jest.fn();
+      const diagnosticPipeline = new Pipeline({ onDiagnostic });
+      const experienceStore: ExperienceStore = {
+        record: jest.fn().mockResolvedValue(undefined),
+        getLatest: jest.fn().mockResolvedValue(null),
+        getByOutcome: jest.fn().mockResolvedValue([]),
+        getRecords: jest.fn().mockResolvedValue([]),
+        addHumanFeedback: jest.fn().mockResolvedValue(false),
+        getLearnableRecords: jest.fn().mockResolvedValue([]),
+        getHistoricalContext: jest.fn().mockResolvedValue(undefined),
+        recordProcessing: jest.fn().mockRejectedValue(error),
+      };
+      diagnosticPipeline.setExperienceStore(experienceStore);
+
+      const result = await diagnosticPipeline.process(createContentItem());
+
+      expect(result.contentItem.id).toBe('test-item-1');
+      expect(result.strategiesUsed).not.toContainEqual(expect.objectContaining({ strategyId: 'pipeline' }));
+      expect(onDiagnostic).toHaveBeenCalledWith({
+        source: 'experience-store',
+        operation: 'record-processing',
+        error,
+      });
     });
   });
 

@@ -154,11 +154,19 @@ export function createRouter(config: ApiConfig = {}): Router {
     const { contentItemId, rating, feedback } = req.body;
 
     try {
-      await experienceStore.addHumanFeedback(
+      const feedbackRecorded = await experienceStore.addHumanFeedback(
         contentItemId,
         feedback ?? `Rating: ${rating}/5`,
         { rating, feedback }
       );
+
+      if (!feedbackRecorded) {
+        res.status(404).json({
+          error: 'Experience Record Not Found',
+          message: 'No experience record matches the supplied contentItemId',
+        });
+        return;
+      }
 
       res.json({
         success: true,

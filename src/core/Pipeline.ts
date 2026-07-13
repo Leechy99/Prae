@@ -11,10 +11,17 @@ import {
 import type { RetryPolicy } from './RetryPolicy';
 import type { ExperienceStore } from '../experience/ExperienceStore';
 
+export interface PipelineDiagnostic {
+  source: 'experience-store';
+  operation: 'record-processing';
+  error: unknown;
+}
+
 export interface PipelineConfig {
   maxRetries?: number;
   enableCloudEscalation?: boolean;
   retryPolicy?: RetryPolicy;
+  onDiagnostic?: (event: PipelineDiagnostic) => void;
 }
 
 interface PipelineExecutedStrategies {
@@ -59,6 +66,7 @@ export class Pipeline {
   private maxRetries: number;
   private enableCloudEscalation: boolean;
   private retryPolicy?: RetryPolicy;
+  private onDiagnostic?: (event: PipelineDiagnostic) => void;
 
   constructor(config: PipelineConfig = {}) {
     this.registry = new StrategyRegistry();
@@ -66,6 +74,7 @@ export class Pipeline {
     this.maxRetries = config.maxRetries ?? 3;
     this.enableCloudEscalation = config.enableCloudEscalation ?? false;
     this.retryPolicy = config.retryPolicy;
+    this.onDiagnostic = config.onDiagnostic;
   }
 
   setExperienceStore(store: ExperienceStore): void {
@@ -186,8 +195,12 @@ export class Pipeline {
 
     // Record to experience store
     if (this.experienceStore) {
-      await this.experienceStore.recordProcessing(contentItem.id, result).catch(() => {
-        // Silently ignore experience store errors
+      await this.experienceStore.recordProcessing(contentItem.id, result).catch(error => {
+        this.onDiagnostic?.({
+          source: 'experience-store',
+          operation: 'record-processing',
+          error,
+        });
       });
     }
 

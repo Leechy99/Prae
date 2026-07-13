@@ -27,7 +27,7 @@ export interface ExperienceStore {
     feedback: string,
     correctedResult?: unknown,
     tenantId?: string
-  ): Promise<void>;
+  ): Promise<boolean>;
   getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>;
   // Pipeline-compatible methods
   getHistoricalContext(contentItemId: string): Promise<unknown>;
@@ -169,7 +169,7 @@ export class LocalExperienceStore implements ExperienceStore {
     feedback: string,
     correctedResult?: unknown,
     tenantId: string = 'default'
-  ): Promise<void> {
+  ): Promise<boolean> {
     await this.ensureLoaded();
 
     for (const records of this.records.values()) {
@@ -181,10 +181,12 @@ export class LocalExperienceStore implements ExperienceStore {
           };
           record.updatedAt = Date.now();
           await this.persist();
-          return;
+          return true;
         }
       }
     }
+
+    return false;
   }
 
   async getLearnableRecords(tenantId: string = 'default'): Promise<ExperienceRecord[]> {
