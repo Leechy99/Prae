@@ -15,18 +15,25 @@ export interface PipelineSemanticState {
   readonly context?: string;
 }
 
+export type ReadonlyConfidenceScore = Readonly<
+  Omit<ConfidenceScore, 'components' | 'bonus'> & {
+    readonly components: Readonly<ConfidenceScore['components']>;
+    readonly bonus: Readonly<ConfidenceScore['bonus']>;
+  }
+>;
+
 export interface PipelineState {
   readonly contentItem: ContentItem;
   readonly document?: string;
   readonly text: string;
   readonly cleanedText?: string;
   readonly filteredText?: string;
-  readonly chunks?: ReadonlyArray<ContentChunk>;
+  readonly chunks?: ReadonlyArray<Readonly<ContentChunk>>;
   readonly totalChunks?: number;
   readonly metrics: PipelineMetrics;
   readonly semantic: PipelineSemanticState;
   readonly strategiesApplied: ReadonlyArray<string>;
-  readonly confidence?: ConfidenceScore;
+  readonly confidence?: ReadonlyConfidenceScore;
 }
 
 const metricNames = ['removedTags', 'navRemoved', 'textLength', 'removedRatio'] as const;

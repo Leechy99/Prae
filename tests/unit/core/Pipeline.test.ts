@@ -536,37 +536,31 @@ describe('Pipeline', () => {
       expect(result.retryCount).toBe(1);
     });
 
-    it('uses custom ConfidenceScorer with adjusted thresholds for retry testing', async () => {
-      // Create a pipeline with a custom scorer that has lower pass threshold
-      const customPipeline = new Pipeline({ maxRetries: 2 });
-      const contentItem = createContentItem({ textContent: 'x' });
-
-      const alwaysLowStrategy: Strategy = {
-        id: 'always-low',
-        name: 'Always Low',
-        type: StrategyType.DENOISE,
-        version: '1.0.0',
-        config: { enabled: true, priority: 1, params: {} },
-        canApply: () => true,
-        execute: async () => ({
-          id: 'exec-low',
-          strategyId: 'always-low',
-          startedAt: Date.now(),
-          completedAt: Date.now(),
-          success: true,
-          output: { cleanedText: 'x', textContent: 'x' },
-        }),
+    it('enforces maxRetries when the retry policy always authorizes another attempt', async () => {
+      const preparedAttempts: number[] = [];
+      const retryPolicy: RetryPolicy = {
+        canRetry: () => true,
+        prepareAttempt: (original, nextAttempt) => {
+          preparedAttempts.push(nextAttempt);
+          return original;
+        },
       };
+      const customPipeline = new Pipeline({ maxRetries: 2, retryPolicy });
+      let applicabilityChecks = 0;
+      customPipeline.registerStrategy({
+        ...createMockStrategy('always-throwing-applicability', StrategyType.DENOISE),
+        canApply: () => {
+          applicabilityChecks++;
+          throw new Error('retryable applicability failure');
+        },
+      });
 
-      customPipeline.registerStrategy(alwaysLowStrategy);
+      const result = await customPipeline.process(createContentItem());
 
-      // With maxRetries=2 and score that triggers retry, we should retry
-      const result = await customPipeline.process(contentItem);
-
-      // Verify retries were attempted
-      expect(result.retryCount).toBeGreaterThanOrEqual(0);
-      // The outcome depends on scoring - verify the pipeline executed
-      expect(result.strategiesUsed.length).toBeGreaterThanOrEqual(1);
+      expect(applicabilityChecks).toBe(3);
+      expect(preparedAttempts).toEqual([1, 2]);
+      expect(result.outcome).toBe('FAILED');
+      expect(result.retryCount).toBe(2);
     });
 
     it('does not retry when max retries is 0', async () => {
@@ -639,6 +633,30 @@ describe('Pipeline', () => {
         operation: 'record-processing',
         error,
       });
+    });
+
+    it('ignores a throwing diagnostic callback after successful processing', async () => {
+      const diagnosticPipeline = new Pipeline({
+        onDiagnostic: () => {
+          throw new Error('diagnostic consumer failed');
+        },
+      });
+      const experienceStore: ExperienceStore = {
+        record: jest.fn().mockResolvedValue(undefined),
+        getLatest: jest.fn().mockResolvedValue(null),
+        getByOutcome: jest.fn().mockResolvedValue([]),
+        getRecords: jest.fn().mockResolvedValue([]),
+        addHumanFeedback: jest.fn().mockResolvedValue(false),
+        getLearnableRecords: jest.fn().mockResolvedValue([]),
+        getHistoricalContext: jest.fn().mockResolvedValue(undefined),
+        recordProcessing: jest.fn().mockRejectedValue(new Error('experience store unavailable')),
+      };
+      diagnosticPipeline.setExperienceStore(experienceStore);
+
+      const result = await diagnosticPipeline.process(createContentItem());
+
+      expect(result.outcome).not.toBe('FAILED');
+      expect(result.strategiesUsed).not.toContainEqual(expect.objectContaining({ strategyId: 'pipeline' }));
     });
   });
 

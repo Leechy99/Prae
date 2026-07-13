@@ -172,18 +172,48 @@ export class LocalExperienceStore implements ExperienceStore {
   ): Promise<boolean> {
     await this.ensureLoaded();
 
+    let matchingRecord: ExperienceRecord | undefined;
+
+    // Generated record IDs are explicit targets and must keep their exact-match behavior.
     for (const records of this.records.values()) {
-      for (const record of records) {
-        if ((record.id === recordId || record.contentItemId === recordId) && record.tenantId === tenantId) {
-          record.humanFeedback = {
-            correctedResult,
-            feedback,
-          };
-          record.updatedAt = Date.now();
-          await this.persist();
-          return true;
+      for (let index = records.length - 1; index >= 0; index--) {
+        const record = records[index];
+        if (record.id === recordId && record.tenantId === tenantId) {
+          matchingRecord = record;
+          break;
         }
       }
+      if (matchingRecord) break;
+    }
+
+    // A content item may have multiple attempts; feedback belongs to its terminal record.
+    if (!matchingRecord) {
+      for (const records of this.records.values()) {
+        for (let index = records.length - 1; index >= 0; index--) {
+          const record = records[index];
+          if (record.contentItemId === recordId && record.tenantId === tenantId) {
+            const isNewer = !matchingRecord
+              || record.createdAt > matchingRecord.createdAt
+              || (
+                record.createdAt === matchingRecord.createdAt
+                && record.processing.retryCount > matchingRecord.processing.retryCount
+              );
+            if (isNewer) {
+              matchingRecord = record;
+            }
+          }
+        }
+      }
+    }
+
+    if (matchingRecord) {
+      matchingRecord.humanFeedback = {
+        correctedResult,
+        feedback,
+      };
+      matchingRecord.updatedAt = Date.now();
+      await this.persist();
+      return true;
     }
 
     return false;

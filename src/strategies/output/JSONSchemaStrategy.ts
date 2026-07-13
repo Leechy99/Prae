@@ -1,5 +1,6 @@
 import { ContentItem, StrategyExecution } from '../../types';
 import { Strategy, StrategyConfig, StrategyType } from '../base/Strategy';
+import { getCanonicalText } from './CanonicalText';
 
 export interface JSONSchemaOutput {
   version: string;
@@ -34,18 +35,14 @@ export class JSONSchemaStrategy implements Strategy {
   }
 
   canApply(item: ContentItem): boolean {
-    const text = item.meta?.filteredText || item.meta?.cleanedText || item.meta?.textContent;
-    return !!text;
+    return getCanonicalText(item).length > 0;
   }
 
   async execute(item: ContentItem): Promise<StrategyExecution> {
     const startedAt = Date.now();
 
     try {
-      const rawFiltered = item.meta?.filteredText;
-      const rawCleaned = item.meta?.cleanedText;
-      const rawTextContent = item.meta?.textContent;
-      const text = String(rawFiltered || rawCleaned || rawTextContent || '');
+      const text = getCanonicalText(item);
       const title = item.meta?.title as string | undefined;
       const url = item.meta?.url as string | undefined;
       const confidence = typeof item.meta?.confidence === 'number'

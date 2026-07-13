@@ -27,6 +27,14 @@
 - Added `LocalExperienceStore.getRecords()` with filters for `recent`, `learnable`, `tenantId`, `sourceType`, `outcome`, and `limit`
 - Feedback write behavior remains unchanged; persisted records can now be read back through the API
 
+### 2026-07-14 - Pipeline correctness alignment
+- DENOISE and SEMANTIC transforms run sequentially, with each successful transform projected into the next strategy input
+- Confidence is calculated from the canonical transformed state before JSON/Markdown rendering
+- Retries require an explicit `RetryPolicy`; `maxRetries` caps added attempts
+- Short multilingual text is retained by semantic filtering and sentence splitting supports common CJK punctuation
+- Feedback by `contentItemId` targets the newest terminal attempt and returns a boolean; the API maps `false` to 404
+- `startServer()` returns a `StartedServer` handle with an idempotent asynchronous `close()` contract
+
 ---
 
 ## Project Vision
@@ -154,9 +162,11 @@ npm start       # node dist/api/index.js (default port 3000)
 
 ### Test
 ```bash
-npm test              # Jest unit tests
+npm test              # Jest unit tests + default 80% global coverage gate
 npx playwright test   # Playwright E2E tests
 ```
+
+On managed Windows sandboxes, Playwright server cleanup may need an elevated run because its shutdown path invokes `taskkill`; this is an environment permission constraint, not an application test failure.
 
 ### Lint
 ```bash
@@ -169,8 +179,8 @@ npm run lint    # tsc --noEmit
 
 - **Framework:** Jest (unit) + Playwright (E2E)
 - **Coverage threshold:** 80% (branches, functions, lines, statements)
-- **Unit tests:** 26 test files covering all modules
-- **E2E tests:** 3 Playwright specs for API health, processing, auth
+- **Unit tests:** 12 Jest test files covering all modules
+- **E2E tests:** 3 Playwright cases covering processing, auth, and strategy listing
 - **Test config:** `jest.config.js` maps `src/` and `tests/` roots with `ts-jest` preset
 - **E2E config:** `playwright.config.ts` targets `http://localhost:3000`
 
@@ -212,10 +222,12 @@ npm run lint    # tsc --noEmit
 1. `feedbackRequestSchema` is exported from `src/api/validators/process.ts`.
 2. `apiKeyAuth()` is used as a middleware factory and matches the implementation in `src/api/middleware/auth.ts`.
 3. `/api/v1/process` uses `InputRegistry` / `HTMLInputSource` for parsing and returns `contentItemId`.
-4. Pipeline now merges stage outputs between DENOISE, SEMANTIC, and OUTPUT, so `filteredText` and `chunks` can reach output strategies.
-5. `/api/v1/experience/feedback` writes feedback to `ExperienceStore` by `contentItemId`.
+4. Pipeline runs DENOISE and SEMANTIC transforms sequentially, computes confidence from their canonical state, then renders OUTPUT strategies; `filteredText` and `chunks` reach renderers.
+5. `/api/v1/experience/feedback` writes feedback to the newest matching attempt by `contentItemId` and returns 404 when no record matches.
 6. `LocalExperienceStore` supports optional JSON persistence; the default API store writes to `data/experience-store.json`, or `PRAE_EXPERIENCE_STORE_PATH` when set.
 7. `GET /api/v1/experience` reads recent or learnable experience records from the configured `ExperienceStore`.
+8. Low-confidence retries are opt-in through `RetryPolicy`; `maxRetries` limits added attempts rather than enabling retries itself.
+9. Short multilingual semantic content is supported, including common CJK sentence punctuation.
 
 ### Remaining gaps
 

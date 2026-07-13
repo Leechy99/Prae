@@ -178,6 +178,85 @@ describe('LocalExperienceStore', () => {
       expect(updated?.humanFeedback?.feedback).toBe('Useful result');
     });
 
+    it('adds content-item feedback to the newest terminal attempt', async () => {
+      const contentItem = createMockContentItem({ id: 'retried-content' });
+      await store.record(createMockProcessingResult({
+        id: 'initial-attempt',
+        contentItem,
+        outcome: 'FAILED',
+        retryCount: 0,
+        confidence: {
+          ...createMockProcessingResult().confidence,
+          overall: 0.61,
+          isPassing: false,
+        },
+      }));
+      await store.record(createMockProcessingResult({
+        id: 'terminal-attempt',
+        contentItem,
+        outcome: 'RETRY_SUCCESS',
+        retryCount: 1,
+        confidence: {
+          ...createMockProcessingResult().confidence,
+          overall: 0.91,
+          isPassing: true,
+        },
+      }));
+
+      await expect(store.addHumanFeedback(
+        contentItem.id,
+        'Terminal attempt is correct',
+        undefined,
+        'default'
+      )).resolves.toBe(true);
+
+      const records = await store.getRecords({ tenantId: 'default', sourceType: 'test' });
+      expect(records).toHaveLength(2);
+      expect(records[0]).toMatchObject({
+        contentItemId: contentItem.id,
+        outcome: 'RETRY_SUCCESS',
+        processing: { retryCount: 1, finalConfidence: 0.91 },
+        humanFeedback: { feedback: 'Terminal attempt is correct' },
+      });
+      expect(records[1]).toMatchObject({
+        contentItemId: contentItem.id,
+        outcome: 'FAILED',
+        processing: { retryCount: 0, finalConfidence: 0.61 },
+      });
+      expect(records[1].humanFeedback).toBeUndefined();
+    });
+
+    it('selects the newest content-item attempt across source buckets', async () => {
+      const contentItemId = 'cross-source-retry';
+      await store.record(createMockProcessingResult({
+        id: 'older-source-attempt',
+        contentItem: createMockContentItem({
+          id: contentItemId,
+          source: 'first://source',
+          meta: { sourceType: 'first' },
+        }),
+        outcome: 'FAILED',
+        retryCount: 0,
+      }));
+      await store.record(createMockProcessingResult({
+        id: 'newer-source-attempt',
+        contentItem: createMockContentItem({
+          id: contentItemId,
+          source: 'second://source',
+          meta: { sourceType: 'second' },
+        }),
+        outcome: 'RETRY_SUCCESS',
+        retryCount: 1,
+      }));
+
+      await store.addHumanFeedback(contentItemId, 'Newest cross-source attempt', undefined, 'default');
+
+      const first = await store.getLatest('first');
+      const second = await store.getLatest('second');
+      expect(first?.humanFeedback).toBeUndefined();
+      expect(second?.humanFeedback?.feedback).toBe('Newest cross-source attempt');
+    });
+
     it('includes corrected result when provided', async () => {
       const result = createMockProcessingResult();
       await store.record(result);

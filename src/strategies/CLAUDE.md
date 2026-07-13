@@ -19,6 +19,7 @@ strategies/
 │   ├── ChunkingStrategy.ts    # Sentence-based chunking (512 char target)
 │   └── RelevanceFilterStrategy.ts  # Paragraph dedup via Jaccard similarity
 └── output/
+    ├── CanonicalText.ts        # Shared nullish canonical-text selection
     ├── JSONSchemaStrategy.ts   # Structured JSON output
     └── MarkdownStrategy.ts    # Markdown output with title heading
 ```
@@ -222,6 +223,10 @@ Priority order for selecting output:
 2. Multiple successes with `cleanedText` -> return that string
 3. Multiple successes with `filteredText` -> return that string
 4. Otherwise -> `{ type: 'fused', sources: N, data: [...] }`
+
+### Canonical Output Text
+
+JSON and Markdown renderers share nullish selection via `filteredText ?? cleanedText ?? textContent ?? ''`, then normalize the selected value to a string. An explicitly empty `filteredText` is authoritative: `canApply()` returns false and direct `execute()` renders empty content instead of reviving stale earlier text.
 
 ### HTMLCleanStrategy
 

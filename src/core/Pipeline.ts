@@ -196,11 +196,15 @@ export class Pipeline {
     // Record to experience store
     if (this.experienceStore) {
       await this.experienceStore.recordProcessing(contentItem.id, result).catch(error => {
-        this.onDiagnostic?.({
-          source: 'experience-store',
-          operation: 'record-processing',
-          error,
-        });
+        try {
+          this.onDiagnostic?.({
+            source: 'experience-store',
+            operation: 'record-processing',
+            error,
+          });
+        } catch {
+          // Diagnostics are observational and must never change processing results.
+        }
       });
     }
 

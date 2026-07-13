@@ -20,7 +20,8 @@ startServer(PORT).catch(err => { console.error('Failed to start server:', err); 
 ```typescript
 // src/api/server.ts
 export function createApp(): Express
-export function startServer(port: number): Promise<Express>
+export interface StartedServer { app: Express; server: Server; close(): Promise<void> }
+export function startServer(port: number): Promise<StartedServer>
 ```
 
 ### Router Factory
@@ -242,9 +243,14 @@ graph LR
 
 1. `/api/v1/process` returns `result.contentItemId`
 2. `Pipeline` records the processing result through `ExperienceStore.recordProcessing()`
-3. `/api/v1/experience/feedback` accepts that `contentItemId` and calls `ExperienceStore.addHumanFeedback()`
-4. The default router store persists records to `data/experience-store.json` outside test mode
-5. `PRAE_EXPERIENCE_STORE_PATH` can override the persistence file path
+3. `/api/v1/experience/feedback` accepts that `contentItemId` and calls boolean-returning `ExperienceStore.addHumanFeedback()`
+4. Feedback targets the newest terminal attempt for that content item; `false` produces HTTP 404
+5. The default router store persists records to `data/experience-store.json` outside test mode
+6. `PRAE_EXPERIENCE_STORE_PATH` can override the persistence file path
+
+### Server Lifecycle
+
+`startServer()` resolves only after listening and returns `{ app, server, close }`. `close()` is asynchronous and idempotent, allowing tests and callers to await server shutdown safely.
 
 ### Experience Read Flow
 
@@ -284,6 +290,7 @@ graph LR
 
 ## Changelog
 
+- **2026-07-14** - Documented `StartedServer.close()` and boolean feedback/404 behavior
 - **2026-06-05** - Documented `GET /api/v1/experience` read endpoint and query filters
 - **2026-06-05** - Aligned API docs with persisted feedback flow and current `ApiConfig`
 

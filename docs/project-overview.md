@@ -1,6 +1,6 @@
 # Prae Project Overview / Prae 项目速览
 
-**Updated / 更新时间:** 2026-06-05
+**Updated / 更新时间:** 2026-07-14
 
 ## Recent Optimizations / 最近优化记录
 
@@ -74,10 +74,12 @@ EN: Prae is currently implemented as a TypeScript + Node.js content-processing s
 3. **Semantic Processing / 语义处理**
    - EN: Splits cleaned text into sentence-based chunks with a target size of about 512 characters and a small overlap.
      中文：对清洗后的文本进行句子级分块，目标块大小约 512 字符，并保留一定 overlap。
-   - EN: Removes paragraphs that are too short to be useful.
-     中文：过滤过短段落。
+   - EN: Removes isolated short paragraphs when they appear alongside substantial content, while preserving documents made entirely of meaningful short text.
+     中文：当短段落与较长正文混合时过滤孤立短段落，同时保留完全由有意义短文本组成的文档。
    - EN: Uses Jaccard similarity to remove duplicate paragraphs.
      中文：使用 Jaccard 相似度去除重复段落。
+   - EN: Keeps meaningful short multilingual text and recognizes common CJK sentence punctuation during splitting.
+     中文：保留有意义的短多语言文本，并在分句时识别常见的中日韩标点。
    - EN: Semantic-stage results are written back to `ContentItem` for downstream output strategies.
      中文：语义阶段结果会写回 `ContentItem`，供后续输出策略使用。
 
@@ -90,20 +92,24 @@ EN: Prae is currently implemented as a TypeScript + Node.js content-processing s
      中文：生成 Markdown 输出，保留标题和段落结构。
    - EN: Markdown output also prefers semantically filtered text.
      中文：Markdown 输出同样优先使用语义过滤后的文本。
+   - EN: An explicitly empty `filteredText` is authoritative and never falls back to stale cleaned or original text.
+     中文：显式为空的 `filteredText` 具有最终权威性，不会回退到旧的清洗文本或原始文本。
 
 5. **Confidence Scoring / 置信度评分**
    - EN: Calculates an overall confidence score from text quality, entity extraction, structural integrity, and contextual coherence.
      中文：从文本质量、实体提取、结构完整性、上下文连贯性等维度计算综合置信度。
-   - EN: Uses thresholds to decide whether processing succeeded, should retry, needs human intervention, or should escalate to cloud handling.
-     中文：根据阈值决定处理结果是成功、重试、人工介入，或云端升级处理。
+   - EN: Scores the canonical DENOISE/SEMANTIC state before rendering, so all output strategies receive the same final confidence.
+     中文：在渲染前对 DENOISE/SEMANTIC 的规范中间态评分，因此所有输出策略接收同一个最终置信度。
+   - EN: Thresholds determine outcomes, but retries occur only when an explicit `RetryPolicy` authorizes and prepares an attempt; `maxRetries` only caps added attempts.
+     中文：阈值决定处理结果，但只有显式 `RetryPolicy` 授权并准备时才会重试；`maxRetries` 只限制新增尝试次数。
 
 6. **Experience Storage / 经验存储**
    - EN: Provides `LocalExperienceStore` with in-memory operation by default and optional JSON file persistence.
      中文：提供 `LocalExperienceStore`，默认可作为内存存储使用，也支持可选 JSON 文件持久化。
    - EN: Records processing results, human feedback, and learnable records.
      中文：可记录处理结果、人类反馈和可学习记录。
-   - EN: Processing results store `contentItemId`, and feedback can be written back by that ID.
-     中文：处理结果会保存 `contentItemId`，反馈接口可按该 ID 写回记录。
+   - EN: Processing results store `contentItemId`; feedback by that ID targets the newest terminal attempt after retries.
+     中文：处理结果会保存 `contentItemId`；按该 ID 提交的反馈会写入重试后的最新终态记录。
    - EN: Records can be read through `GET /api/v1/experience` as recent or learnable records.
      中文：经验记录可以通过 `GET /api/v1/experience` 按最近记录或可学习记录读取。
    - EN: The default API store persists to `data/experience-store.json`; set `PRAE_EXPERIENCE_STORE_PATH` to choose another file.
@@ -121,8 +127,8 @@ Raw Content
   -> ContentItem
   -> DENOISE strategies
   -> SEMANTIC strategies
-  -> OUTPUT strategies
   -> ConfidenceScorer
+  -> OUTPUT strategies
   -> ProcessingResult
 ```
 
@@ -170,6 +176,8 @@ Raw Content
     中文：调用本地 `ExperienceStore` 记录反馈。
   - EN: Supports writing feedback by the `contentItemId` returned from `/process`.
     中文：支持按 `/process` 返回的 `contentItemId` 写回对应处理记录。
+  - EN: Returns success only when the store reports `true`; an unknown target returns HTTP 404.
+    中文：仅当存储返回 `true` 时成功；未知目标返回 HTTP 404。
 
 ## Tech Stack / 当前技术栈
 
@@ -207,6 +215,10 @@ EN: Prae has a working MVP foundation:
   中文：最近记录和可学习经验记录可通过带认证的 API 读取。
 - EN: Jest unit tests and Playwright E2E configuration are present.
   中文：已有 Jest 单元测试与 Playwright E2E 测试配置。
+- EN: `npm test` enforces the default 80% global gate for branches, functions, lines, and statements.
+  中文：`npm test` 默认对分支、函数、行和语句执行 80% 全局覆盖率门槛。
+- EN: Managed Windows sandboxes may require elevated Playwright execution because server cleanup invokes `taskkill`.
+  中文：受管 Windows 沙箱中，Playwright 服务清理会调用 `taskkill`，因此可能需要提升权限运行。
 
 ## Remaining Gaps / 待补齐点
 

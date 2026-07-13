@@ -2,7 +2,7 @@
 
 ## Module Overview
 
-Core processing engine of Prae. `Pipeline` orchestrates the multi-strategy pipeline (DENOISE -> SEMANTIC -> OUTPUT) with retry logic and outcome determination. `ConfidenceScorer` evaluates processing quality via weighted component analysis.
+Core processing engine of Prae. `Pipeline` runs DENOISE and SEMANTIC transforms sequentially, scores their canonical state, then runs OUTPUT renderers. `ConfidenceScorer` evaluates processing quality via weighted component analysis.
 
 ## Public API
 
@@ -13,6 +13,8 @@ Core processing engine of Prae. `Pipeline` orchestrates the multi-strategy pipel
 export interface PipelineConfig {
   maxRetries?: number;              // default: 3
   enableCloudEscalation?: boolean;  // default: false
+  retryPolicy?: RetryPolicy;        // omitted by default; retries are opt-in
+  onDiagnostic?: (event: PipelineDiagnostic) => void;
 }
 
 export class Pipeline {
@@ -104,15 +106,15 @@ graph TD
     A["Pipeline.process(contentItem)"] --> B["executePipelineWithRetry"]
     B --> C["DENOISE strategies\npriority-sorted"]
     C --> D["SEMANTIC strategies\npriority-sorted"]
-    D --> E["OUTPUT strategies\npriority-sorted"]
-    E --> F["ConfidenceScorer.calculateScore"]
-    F --> G{"score.isPassing?"}
+    D --> F["ConfidenceScorer.calculateScore"]
+    F --> E["OUTPUT strategies\npriority-sorted"]
+    E --> G{"score.isPassing?"}
     G -->|yes| H["outcome = SUCCESS"]
     G -->|no, score >= 0.6| I["shouldRetry? -> retry or FAILED"]
     G -->|score < 0.4| J{"enableCloudEscalation?"}
     J -->|yes| K["CLOUD_ESCALATED"]
     J -->|no| L["HUMAN_INTERVENTION"]
-    F --> M["ExperienceStore.recordProcessing"]
+    G --> M["ExperienceStore.recordProcessing"]
 ```
 
 ## Mermaid Diagram — Module Relationships
@@ -135,15 +137,16 @@ graph LR
 
 ### Strategy Execution Order
 
-Strategies execute in strict type order, sorted by priority ascending (lower number = higher priority within group):
+Transforms execute one at a time in strict type order, with each successful output becoming the next strategy's input. Strategies are sorted by priority ascending (lower number = higher priority within group):
 
 1. **DENOISE** strategies — `HTMLCleanStrategy` (100), `NavigationFilterStrategy` (90)
 2. **SEMANTIC** strategies — `ChunkingStrategy` (100), `RelevanceFilterStrategy` (90)
-3. **OUTPUT** strategies — `JSONSchemaStrategy` (50), `MarkdownStrategy` (50)
+3. Compute confidence from the canonical transformed state
+4. **OUTPUT** strategies — `JSONSchemaStrategy` (50), `MarkdownStrategy` (50)
 
 ### Output Merging (mergeOutput)
 
-After each phase, fused output is merged back into `contentItem.meta`:
+Known transform output is merged into typed `PipelineState` and projected into the next `ContentItem`; output renderers do not feed another transform stage:
 
 | Output Type | Meta Keys Set |
 |-------------|---------------|
@@ -156,12 +159,13 @@ After each phase, fused output is merged back into `contentItem.meta`:
 ### Retry Logic
 
 ```
-for retryCount in 0..maxRetries:
-    execute all strategy phases
-    if SUCCESS or RETRY_SUCCESS: return result
-    if CLOUD_ESCALATED or HUMAN_INTERVENTION: return result
-    if FAILED and shouldRetry(score) and retryCount < max: continue
-    else: return result
+execute first attempt
+if SUCCESS or RETRY_SUCCESS: return result
+if no RetryPolicy: return terminal result
+while RetryPolicy.canRetry(result, nextAttempt) and nextAttempt <= maxRetries:
+    attempt = RetryPolicy.prepareAttempt(freshCloneOfOriginal, nextAttempt)
+    execute attempt
+return terminal result
 ```
 
 ### Confidence Score Components
@@ -182,12 +186,12 @@ for retryCount in 0..maxRetries:
 | Threshold | Value | Condition |
 |-----------|-------|-----------|
 | `pass` | 0.85 | Accept result |
-| `retry` | 0.60 | Retry if retries < max |
+| `retry` | 0.60 | Produces a retryable `FAILED` result; retry still requires `RetryPolicy` |
 | `escalate` | 0.40 | Escalate (cloud or human) |
 
 ### Experience Store Integration
 
-`Pipeline.setExperienceStore()` accepts the shared `ExperienceStore` interface from `src/experience/ExperienceStore.ts`. During processing, Pipeline asks the store for historical confidence context by `contentItem.id`, then records the finished `ProcessingResult` through `recordProcessing()`. Store errors are caught and ignored so the main processing response is not blocked by persistence failures.
+`Pipeline.setExperienceStore()` accepts the shared `ExperienceStore` interface from `src/experience/ExperienceStore.ts`. During processing, Pipeline asks the store for historical confidence context by `contentItem.id`, then records each completed attempt through `recordProcessing()`. Store errors are caught; optional diagnostic callbacks are observational, and callback failures are also contained so content processing is not changed.
 
 ### Module Augmentation
 
@@ -211,6 +215,7 @@ The API layer extends `Pipeline` interface via declaration merging to add `getRe
 
 ## Changelog
 
+- **2026-07-14** - Documented sequential transforms, confidence-before-rendering, opt-in retries, and contained diagnostics
 - **2026-06-05** - Updated ExperienceStore integration notes to match the shared store interface
 
 - **2026-04-23 16:11:05** — Updated module documentation with complete API signatures, pipeline flow diagrams, and retry logic explanation

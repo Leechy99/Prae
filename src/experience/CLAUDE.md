@@ -17,7 +17,7 @@ export interface ExperienceStore {
   getLatest(sourceType: string, tenantId?: string): Promise<ExperienceRecord | null>;
   getByOutcome(outcome: ProcessingResult['outcome'], tenantId?: string): Promise<ExperienceRecord[]>;
   getRecords(query?: ExperienceRecordQuery): Promise<ExperienceRecord[]>;
-  addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<void>;
+  addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<boolean>;
   getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>;
   getHistoricalContext(contentItemId: string): Promise<unknown>;
   recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>;
@@ -34,7 +34,7 @@ export class LocalExperienceStore implements ExperienceStore {
   async getLatest(sourceType: string, tenantId?: string): Promise<ExperienceRecord | null>
   async getByOutcome(outcome: ProcessingResult['outcome'], tenantId?: string): Promise<ExperienceRecord[]>
   async getRecords(query?: ExperienceRecordQuery): Promise<ExperienceRecord[]>
-  async addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<void>
+  async addHumanFeedback(recordId: string, feedback: string, correctedResult?: unknown, tenantId?: string): Promise<boolean>
   async getLearnableRecords(tenantId?: string): Promise<ExperienceRecord[]>
   async getHistoricalContext(contentItemId: string): Promise<unknown>
   async recordProcessing(contentItemId: string, result: ProcessingResult): Promise<void>
@@ -189,7 +189,7 @@ Sorting uses `createdAt` descending with insertion order as a tie-breaker, which
 
 ### addHumanFeedback() Behavior
 
-Updates the matching record in-place, setting `humanFeedback` and `updatedAt`, then persists when `filePath` is configured. A match can be either the generated experience record `id` or the `contentItemId` returned by `/api/v1/process`:
+Updates the matching record in-place, setting `humanFeedback` and `updatedAt`, then persists when `filePath` is configured. An explicit generated record `id` remains an exact target. A `contentItemId` match searches newest-first so retries attach feedback to the terminal attempt. The method returns `true` for a match and `false` otherwise; the API maps `false` to HTTP 404.
 
 ```typescript
 record.humanFeedback = { correctedResult, feedback };
@@ -213,6 +213,7 @@ record.updatedAt = Date.now();
 
 ## Changelog
 
+- **2026-07-14** - Documented newest-attempt feedback targeting and boolean return semantics
 - **2026-06-05** - Documented `getRecords()` read query API and learnable/recent filtering
 - **2026-06-05** - Documented persisted file format and feedback lookup by `contentItemId`
 

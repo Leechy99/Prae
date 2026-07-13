@@ -108,6 +108,34 @@ describe('Output Strategies', () => {
       expect(output.chunks).toEqual(chunks);
     });
 
+    it('treats empty filteredText as canonical instead of reviving older text', async () => {
+      const item = createContentItem({
+        filteredText: '',
+        cleanedText: 'Stale cleaned content',
+        textContent: 'Stale original content',
+      });
+
+      expect(strategy.canApply(item)).toBe(false);
+
+      const result = await strategy.execute(item);
+      const output = result.output as { content: { text: string } };
+      expect(result.success).toBe(true);
+      expect(output.content.text).toBe('');
+    });
+
+    it('normalizes the nullishly selected canonical value before applying or rendering', async () => {
+      const item = createContentItem({
+        filteredText: 0,
+        cleanedText: 'Stale cleaned content',
+      });
+
+      expect(strategy.canApply(item)).toBe(true);
+
+      const result = await strategy.execute(item);
+      const output = result.output as { content: { text: string } };
+      expect(output.content.text).toBe('0');
+    });
+
     it('should use zero confidence when not provided', async () => {
       const item = createContentItem({
         cleanedText: 'Test content',
@@ -237,6 +265,34 @@ describe('Output Strategies', () => {
       const output = result.output as { markdown: string };
       expect(output.markdown).toContain('Filtered paragraph.');
       expect(output.markdown).not.toContain('Cleaned paragraph.');
+    });
+
+    it('treats empty filteredText as canonical instead of reviving older text', async () => {
+      const item = createContentItem({
+        filteredText: '',
+        cleanedText: 'Stale cleaned paragraph.',
+        textContent: 'Stale original paragraph.',
+      });
+
+      expect(strategy.canApply(item)).toBe(false);
+
+      const result = await strategy.execute(item);
+      const output = result.output as { markdown: string };
+      expect(result.success).toBe(true);
+      expect(output.markdown).toBe('');
+    });
+
+    it('normalizes the nullishly selected canonical value before applying or rendering', async () => {
+      const item = createContentItem({
+        filteredText: 0,
+        cleanedText: 'Stale cleaned paragraph.',
+      });
+
+      expect(strategy.canApply(item)).toBe(true);
+
+      const result = await strategy.execute(item);
+      const output = result.output as { markdown: string };
+      expect(output.markdown).toBe('0');
     });
 
     it('should join paragraphs with double newlines', async () => {
